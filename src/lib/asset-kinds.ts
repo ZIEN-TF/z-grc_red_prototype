@@ -13,17 +13,14 @@ export type AssetKind =
   | "network_service"
   | "data_flow"
   | "physical_interface"
-  // Mechanism instances — entered after assets, feed DT iterations
-  | "access_control_mechanism"
-  | "authentication_mechanism"
-  | "secure_update_mechanism"
-  | "secure_storage_mechanism"
-  | "secure_communication_mechanism"
-  | "logging_mechanism"
-  | "deletion_mechanism"
-  | "user_notification_mechanism";
+  // ACM instances — named inline at the bottom of ACM-2 DT, not in inventory
+  | "acm_instance"
+  // SUM instances — named inline at the bottom of SUM-1 DT (PASS only)
+  | "sum_instance";
 
-export type InventoryCategory = "asset" | "mechanism";
+// Category still on the config type for backward compat with existing shapes,
+// but only "asset" is meaningful now.
+export type InventoryCategory = "asset";
 
 export type AssetFieldType = "text" | "select" | "textarea";
 
@@ -60,6 +57,9 @@ export type AssetKindConfig = {
   namePlaceholder: string;
   metadataFields: AssetFieldSpec[];
   listColumns: string[];
+  // When true, this kind is hidden from the asset inventory pages — used for
+  // kinds collected inline from elsewhere (e.g. acm_instance from ACM-2 DT).
+  hideFromInventory?: boolean;
 };
 
 // Display order: protected assets first (SA→NA→PA→FA),
@@ -75,8 +75,27 @@ export const ASSET_KINDS: AssetKindConfig[] = [
     description_en:
       "Security parameters, functions and data to protect (passwords, keys, certificates, security configs, firmware images). Feeds ACM / SSM / SUM / CCK evaluation.",
     namePlaceholder: "예: 관리자 비밀번호 / TLS 클라이언트 인증서",
-    listColumns: ["protection", "type", "sensitivity", "storage"],
+    listColumns: ["nature", "protection", "type", "sensitivity", "storage"],
     metadataFields: [
+      {
+        name: "nature",
+        label_ko: "자산 성격",
+        label_en: "Asset Nature",
+        type: "select",
+        required: true,
+        options: [
+          {
+            value: "parameter",
+            label_ko: "보안 파라미터 (변수·데이터)",
+            label_en: "Security Parameter (variable/data)",
+          },
+          {
+            value: "function",
+            label_ko: "보안 기능",
+            label_en: "Security Function",
+          },
+        ],
+      },
       {
         name: "protection",
         label_ko: "보호 요구",
@@ -147,8 +166,27 @@ export const ASSET_KINDS: AssetKindConfig[] = [
     description_en:
       "Network-reachable resources and functions to protect (exposed management APIs, telemetry channels, control endpoints). Feeds RLM / NMM / TCM evaluation.",
     namePlaceholder: "예: 관리 API 엔드포인트 / 제어 명령 채널",
-    listColumns: ["role", "accessibility"],
+    listColumns: ["nature", "role", "accessibility"],
     metadataFields: [
+      {
+        name: "nature",
+        label_ko: "자산 성격",
+        label_en: "Asset Nature",
+        type: "select",
+        required: true,
+        options: [
+          {
+            value: "parameter",
+            label_ko: "네트워크 파라미터 (변수·설정)",
+            label_en: "Network Parameter (variable/config)",
+          },
+          {
+            value: "function",
+            label_ko: "네트워크 기능",
+            label_en: "Network Function",
+          },
+        ],
+      },
       {
         name: "role",
         label_ko: "역할",
@@ -246,8 +284,27 @@ export const ASSET_KINDS: AssetKindConfig[] = [
     description_en:
       "Monetary or monetary-equivalent assets (payment tokens, transaction records, balances, payment methods, wallets). In scope of EN 18031-3.",
     namePlaceholder: "예: 결제 카드 토큰 / 거래 기록 / 지갑 잔액",
-    listColumns: ["type", "value_form", "storage"],
+    listColumns: ["nature", "type", "value_form", "storage"],
     metadataFields: [
+      {
+        name: "nature",
+        label_ko: "자산 성격",
+        label_en: "Asset Nature",
+        type: "select",
+        required: true,
+        options: [
+          {
+            value: "parameter",
+            label_ko: "금융 데이터·설정 (변수)",
+            label_en: "Financial Data/Config (variable)",
+          },
+          {
+            value: "function",
+            label_ko: "금융 기능",
+            label_en: "Financial Function",
+          },
+        ],
+      },
       {
         name: "type",
         label_ko: "자산 유형",
@@ -304,7 +361,7 @@ export const ASSET_KINDS: AssetKindConfig[] = [
     description_en:
       "Communication interfaces provided or used by the device. Feeds NMM / RLM / TCM evaluation.",
     namePlaceholder: "예: Wi-Fi 2.4GHz / e.g., Wi-Fi 2.4GHz",
-    listColumns: ["type", "role"],
+    listColumns: ["type", "role", "exposed_factory_default"],
     metadataFields: [
       {
         name: "type",
@@ -337,6 +394,25 @@ export const ASSET_KINDS: AssetKindConfig[] = [
           { value: "client", label_ko: "클라이언트", label_en: "Client" },
           { value: "server_ap", label_ko: "서버 / AP", label_en: "Server / AP" },
           { value: "both", label_ko: "양방향", label_en: "Both" },
+        ],
+      },
+      {
+        name: "exposed_factory_default",
+        label_ko: "공장 기본 상태에서 노출 여부",
+        label_en: "Exposed in Factory Default",
+        type: "select",
+        required: true,
+        options: [
+          {
+            value: "yes",
+            label_ko: "노출됨 (GEC-4 평가 대상)",
+            label_en: "Exposed (subject to GEC-4)",
+          },
+          {
+            value: "no",
+            label_ko: "노출되지 않음",
+            label_en: "Not exposed",
+          },
         ],
       },
     ],
@@ -538,538 +614,97 @@ export const ASSET_KINDS: AssetKindConfig[] = [
       },
     ],
   },
-
-  // ══════════════════════════════════════════════════════════════════════
-  // MECHANISM INSTANCES — entered after assets, feed DT iterations
-  // ══════════════════════════════════════════════════════════════════════
   {
-    kind: "access_control_mechanism",
-    category: "mechanism",
-    mechanismCode: "ACM",
-    title_ko: "접근 통제 메커니즘 (ACM)",
-    title_en: "Access Control Mechanisms (ACM)",
-    description_ko:
-      "기기 내 자산 접근을 관리하는 메커니즘 인스턴스. ACM-2, AUM-1-1/-1-2 평가에서 반복 대상이 됩니다.",
-    description_en:
-      "Instances of access control mechanisms. Iterated by ACM-2 and AUM-1-x evaluations.",
-    namePlaceholder: "예: 관리자 웹 UI 접근 통제 / e.g., Admin Web UI access control",
-    listColumns: ["managed_via", "uses_authentication", "protects"],
+    // Named inline from ACM-2 DT. Hidden from the main asset inventory.
+    kind: "acm_instance",
+    category: "asset",
+    hideFromInventory: true,
+    title_ko: "접근 통제 메커니즘",
+    title_en: "Access Control Mechanism",
+    description_ko: "ACM-2에서 등록한 접근 통제 메커니즘. AUM 요구사항의 반복 단위로 사용됩니다.",
+    description_en: "Access control mechanism registered from ACM-2; iterated by AUM requirements.",
+    namePlaceholder: "예: 관리자 로그인 / API 토큰 인증",
+    listColumns: [],
     metadataFields: [
       {
-        name: "managed_via",
-        label_ko: "통제 대상 인터페이스",
-        label_en: "Managed Via",
+        name: "interface_network",
+        label_ko: "네트워크 인터페이스",
+        label_en: "Network Interface",
         type: "select",
-        required: true,
         options: [
-          { value: "network_interface", label_ko: "네트워크 인터페이스", label_en: "Network interface" },
-          { value: "user_interface", label_ko: "사용자 인터페이스 (로컬)", label_en: "User interface (local)" },
-          { value: "machine_interface", label_ko: "머신 인터페이스 (M2M·API)", label_en: "Machine interface (M2M/API)" },
-          { value: "physical_interface", label_ko: "물리 인터페이스", label_en: "Physical interface" },
-          { value: "mixed", label_ko: "혼합", label_en: "Mixed" },
-          { value: "other", label_ko: "기타", label_en: "Other" },
-        ],
-      },
-      {
-        name: "uses_authentication",
-        label_ko: "인증 메커니즘 적용 여부",
-        label_en: "Uses Authentication",
-        type: "select",
-        required: true,
-        options: [
-          { value: "yes", label_ko: "예 — 별도로 인증 메커니즘 등록 필요", label_en: "Yes — register an Authentication Mechanism separately" },
+          { value: "yes", label_ko: "예", label_en: "Yes" },
           { value: "no", label_ko: "아니오", label_en: "No" },
         ],
       },
       {
-        name: "protects",
-        label_ko: "보호 대상",
-        label_en: "Protects",
-        type: "text",
-        placeholder: "예: 관리자 계정·설정값 / Admin account, config",
-      },
-      {
-        name: "permission_model",
-        label_ko: "권한 모델",
-        label_en: "Permission Model",
+        name: "interface_user",
+        label_ko: "사용자 인터페이스",
+        label_en: "User Interface",
         type: "select",
         options: [
-          { value: "role_based", label_ko: "역할 기반 (RBAC)", label_en: "Role-based (RBAC)" },
-          { value: "user_based", label_ko: "사용자 기반", label_en: "User-based" },
-          { value: "allowlist", label_ko: "Allowlist", label_en: "Allowlist" },
-          { value: "other", label_ko: "기타", label_en: "Other" },
-        ],
-      },
-    ],
-  },
-  {
-    kind: "authentication_mechanism",
-    category: "mechanism",
-    mechanismCode: "AUM",
-    title_ko: "인증 메커니즘 (AUM)",
-    title_en: "Authentication Mechanisms (AUM)",
-    description_ko:
-      "ACM이 사용하는 인증 방식의 인스턴스. AUM-2/-3/-4/-6 등에서 반복 대상이 됩니다. 인증을 사용하는 ACM마다 적어도 하나 있어야 합니다.",
-    description_en:
-      "Instances of authentication methods used by access control mechanisms. Iterated by AUM-2/-3/-4/-6. At least one is expected per authenticating ACM.",
-    namePlaceholder: "예: 관리자 비밀번호 인증 / e.g., Admin password auth",
-    listColumns: ["factor_type", "password_scope", "uses_factory_default"],
-    metadataFields: [
-      {
-        name: "factor_type",
-        label_ko: "요소 종류",
-        label_en: "Factor Type",
-        type: "select",
-        required: true,
-        options: [
-          { value: "knowledge", label_ko: "지식 (비밀번호·PIN 등)", label_en: "Knowledge (password/PIN)" },
-          { value: "possession", label_ko: "소유 (토큰·스마트카드 등)", label_en: "Possession (token, smartcard)" },
-          { value: "inherence", label_ko: "고유성 (생체 등)", label_en: "Inherence (biometric)" },
-          { value: "multi_factor", label_ko: "다중 요소 (2FA/MFA)", label_en: "Multi-factor (2FA/MFA)" },
+          { value: "yes", label_ko: "예", label_en: "Yes" },
+          { value: "no", label_ko: "아니오", label_en: "No" },
         ],
       },
       {
-        name: "for_acm",
-        label_ko: "적용 ACM",
-        label_en: "For ACM",
-        type: "text",
-        placeholder: "예: 관리자 웹 UI 접근 통제 / which ACM this serves",
+        name: "interface_machine",
+        label_ko: "머신 인터페이스",
+        label_en: "Machine Interface",
+        type: "select",
+        options: [
+          { value: "yes", label_ko: "예", label_en: "Yes" },
+          { value: "no", label_ko: "아니오", label_en: "No" },
+        ],
       },
       {
-        name: "password_scope",
-        label_ko: "비밀번호 보관 위치",
-        label_en: "Password Scope",
+        name: "password_type",
+        label_ko: "비밀번호 유형",
+        label_en: "Password Type",
         type: "select",
-        required: true,
         options: [
           {
-            value: "device_local",
-            label_ko: "기기 내 저장·검증 (장비 자체 비밀번호)",
-            label_en: "Stored/verified on device (equipment password)",
+            value: "factory_default",
+            label_ko: "공장 기본 비밀번호 사용",
+            label_en: "Factory default password",
           },
           {
-            value: "external",
-            label_ko: "외부 서비스로 위임 (OAuth·클라우드 등)",
-            label_en: "Delegated to external service (OAuth/cloud)",
+            value: "user_set",
+            label_ko: "사용자 설정 비밀번호 (공장 기본 아님)",
+            label_en: "User-set password (non factory default)",
+          },
+          {
+            value: "third_party",
+            label_ko: "타사 솔루션 사용 (타사 로그인 비밀번호)",
+            label_en: "Third-party solution (third-party login password)",
           },
           {
             value: "none",
-            label_ko: "비밀번호 미사용 (토큰/생체만)",
-            label_en: "No password used (token/biometric only)",
+            label_ko: "비밀번호 미사용 (생체·토큰·인증서 등)",
+            label_en: "No password (biometric, token, certificate, etc.)",
           },
         ],
       },
-      {
-        name: "uses_factory_default",
-        label_ko: "공장 기본 비밀번호 사용",
-        label_en: "Uses Factory Default Password",
-        type: "select",
-        required: true,
-        options: [
-          { value: "yes", label_ko: "예", label_en: "Yes" },
-          { value: "no", label_ko: "아니오", label_en: "No" },
-          { value: "na", label_ko: "해당 없음 (비밀번호 미사용/외부 위임)", label_en: "N/A (no password or delegated)" },
-        ],
-      },
-      {
-        name: "brute_force_protected",
-        label_ko: "무차별 대입 방어",
-        label_en: "Brute-force Protected",
-        type: "select",
-        options: [
-          { value: "yes", label_ko: "예 (시도 제한·지연 등)", label_en: "Yes (attempt limit / delay)" },
-          { value: "no", label_ko: "아니오", label_en: "No" },
-        ],
-      },
-      {
-        name: "authenticator_changeable",
-        label_ko: "인증자 변경 가능",
-        label_en: "Authenticator Changeable",
-        type: "select",
-        options: [
-          { value: "yes", label_ko: "예", label_en: "Yes" },
-          { value: "no", label_ko: "아니오", label_en: "No" },
-          { value: "conflicts", label_ko: "보안 목표와 충돌", label_en: "Conflicts with security goals" },
-        ],
-      },
     ],
   },
   {
-    kind: "secure_update_mechanism",
-    category: "mechanism",
-    mechanismCode: "SUM",
-    title_ko: "보안 업데이트 메커니즘 (SUM)",
-    title_en: "Secure Update Mechanisms (SUM)",
-    description_ko:
-      "펌웨어·소프트웨어 업데이트 메커니즘 인스턴스. SUM-2, SUM-3 평가 반복 대상.",
-    description_en: "Instances of firmware/software update mechanisms. Iterated by SUM-2/SUM-3.",
-    namePlaceholder: "예: OTA 펌웨어 업데이트 / e.g., OTA firmware update",
-    listColumns: ["target_software", "installation_mode", "verifies_signature"],
-    metadataFields: [
-      {
-        name: "target_software",
-        label_ko: "대상 소프트웨어",
-        label_en: "Target Software",
-        type: "text",
-        required: true,
-        placeholder: "예: 주 펌웨어·MCU 부트로더 / Main firmware, MCU bootloader",
-      },
-      {
-        name: "installation_mode",
-        label_ko: "설치 방식",
-        label_en: "Installation Mode",
-        type: "select",
-        required: true,
-        options: [
-          { value: "without_human", label_ko: "사람 개입 없이 자동", label_en: "Without human intervention" },
-          { value: "scheduled_approval", label_ko: "사람 승인 후 예약 설치", label_en: "Scheduled with human approval" },
-          { value: "triggered_approval", label_ko: "사람 승인·감독 하 트리거", label_en: "Triggered under human approval/supervision" },
-          { value: "manual", label_ko: "수동 (사용자 직접)", label_en: "Manual (user initiated)" },
-        ],
-      },
-      {
-        name: "verifies_signature",
-        label_ko: "서명 검증 수행",
-        label_en: "Verifies Signature",
-        type: "select",
-        required: true,
-        options: [
-          { value: "yes", label_ko: "예", label_en: "Yes" },
-          { value: "no", label_ko: "아니오", label_en: "No" },
-        ],
-      },
-      {
-        name: "uses_secure_channel",
-        label_ko: "보안 채널 사용 (TLS 등)",
-        label_en: "Uses Secure Channel",
-        type: "select",
-        options: [
-          { value: "yes", label_ko: "예", label_en: "Yes" },
-          { value: "no", label_ko: "아니오", label_en: "No" },
-        ],
-      },
-      {
-        name: "prevents_rollback",
-        label_ko: "롤백 방지",
-        label_en: "Prevents Rollback",
-        type: "select",
-        options: [
-          { value: "yes", label_ko: "예", label_en: "Yes" },
-          { value: "no", label_ko: "아니오", label_en: "No" },
-        ],
-      },
-    ],
-  },
-  {
-    kind: "secure_storage_mechanism",
-    category: "mechanism",
-    mechanismCode: "SSM",
-    title_ko: "보안 저장 메커니즘 (SSM)",
-    title_en: "Secure Storage Mechanisms (SSM)",
-    description_ko:
-      "영구 저장된 자산을 보호하는 저장 메커니즘 인스턴스. SSM-2, SSM-3 평가 반복 대상.",
-    description_en:
-      "Instances of secure storage mechanisms protecting persistently stored assets. Iterated by SSM-2/SSM-3.",
-    namePlaceholder: "예: Secure Element 저장소 / e.g., Secure Element storage",
-    listColumns: ["storage_backend", "protects_integrity", "protects_confidentiality"],
-    metadataFields: [
-      {
-        name: "storage_backend",
-        label_ko: "저장소 기반",
-        label_en: "Storage Backend",
-        type: "select",
-        required: true,
-        options: [
-          { value: "se_tpm", label_ko: "Secure Element / TPM", label_en: "Secure Element / TPM" },
-          { value: "encrypted_flash", label_ko: "암호화된 플래시", label_en: "Encrypted flash" },
-          { value: "software", label_ko: "소프트웨어 전용", label_en: "Software only" },
-          { value: "mcu_secure_boot", label_ko: "MCU 보안 부팅 영역", label_en: "MCU secure boot area" },
-          { value: "other", label_ko: "기타", label_en: "Other" },
-        ],
-      },
-      {
-        name: "protects_integrity",
-        label_ko: "무결성 보호",
-        label_en: "Protects Integrity",
-        type: "select",
-        required: true,
-        options: [
-          { value: "yes", label_ko: "예", label_en: "Yes" },
-          { value: "no", label_ko: "아니오", label_en: "No" },
-        ],
-      },
-      {
-        name: "protects_confidentiality",
-        label_ko: "기밀성 보호",
-        label_en: "Protects Confidentiality",
-        type: "select",
-        required: true,
-        options: [
-          { value: "yes", label_ko: "예", label_en: "Yes" },
-          { value: "no", label_ko: "아니오", label_en: "No" },
-        ],
-      },
-    ],
-  },
-  {
-    kind: "secure_communication_mechanism",
-    category: "mechanism",
-    mechanismCode: "SCM",
-    title_ko: "보안 통신 메커니즘 (SCM)",
-    title_en: "Secure Communication Mechanisms (SCM)",
-    description_ko:
-      "네트워크 통신을 보호하는 메커니즘 인스턴스. SCM-2, SCM-3, SCM-4 평가 반복 대상.",
-    description_en:
-      "Instances of secure communication mechanisms. Iterated by SCM-2/-3/-4.",
-    namePlaceholder: "예: MQTT-over-TLS / e.g., MQTT over TLS 1.3",
-    listColumns: ["protocol_family", "protects_confidentiality", "replay_protection"],
-    metadataFields: [
-      {
-        name: "protocol_family",
-        label_ko: "프로토콜 계열",
-        label_en: "Protocol Family",
-        type: "select",
-        required: true,
-        options: [
-          { value: "tls", label_ko: "TLS", label_en: "TLS" },
-          { value: "dtls", label_ko: "DTLS", label_en: "DTLS" },
-          { value: "ipsec", label_ko: "IPsec", label_en: "IPsec" },
-          { value: "ssh", label_ko: "SSH", label_en: "SSH" },
-          { value: "vpn", label_ko: "VPN (기타)", label_en: "VPN (other)" },
-          { value: "custom", label_ko: "자체 프로토콜", label_en: "Custom protocol" },
-          { value: "other", label_ko: "기타", label_en: "Other" },
-        ],
-      },
-      {
-        name: "protects_integrity",
-        label_ko: "무결성·진본성 보호",
-        label_en: "Protects Integrity / Authenticity",
-        type: "select",
-        required: true,
-        options: [
-          { value: "yes", label_ko: "예 (모범 사례)", label_en: "Yes (best practice)" },
-          { value: "deviation", label_ko: "편차 (상호운용성 사유)", label_en: "Deviation (interoperability)" },
-          { value: "no", label_ko: "아니오", label_en: "No" },
-        ],
-      },
-      {
-        name: "protects_confidentiality",
-        label_ko: "기밀성 보호",
-        label_en: "Protects Confidentiality",
-        type: "select",
-        required: true,
-        options: [
-          { value: "yes", label_ko: "예 (모범 사례)", label_en: "Yes (best practice)" },
-          { value: "deviation", label_ko: "편차 (상호운용성 사유)", label_en: "Deviation (interoperability)" },
-          { value: "no", label_ko: "아니오 (필요 없음)", label_en: "No (not needed)" },
-        ],
-      },
-      {
-        name: "replay_protection",
-        label_ko: "재전송 방지",
-        label_en: "Replay Protection",
-        type: "select",
-        required: true,
-        options: [
-          { value: "yes", label_ko: "예", label_en: "Yes" },
-          { value: "not_threat", label_ko: "재전송이 위협 아님", label_en: "Replay not a threat" },
-          { value: "deviation", label_ko: "편차", label_en: "Deviation" },
-          { value: "no", label_ko: "아니오", label_en: "No" },
-        ],
-      },
-    ],
-  },
-  {
-    kind: "logging_mechanism",
-    category: "mechanism",
-    mechanismCode: "LGM",
-    title_ko: "로깅 메커니즘 (LGM)",
-    title_en: "Logging Mechanisms (LGM)",
-    description_ko:
-      "보안·프라이버시 이벤트를 로깅하는 메커니즘 인스턴스. EN 18031-2 LGM-2/-3/-4 평가 반복 대상.",
-    description_en:
-      "Instances of logging mechanisms. Iterated by EN 18031-2 LGM-2/-3/-4.",
-    namePlaceholder: "예: Syslog 원격 전송 / e.g., Remote syslog",
-    listColumns: ["storage_location", "includes_timestamps", "integrity_protected"],
-    metadataFields: [
-      {
-        name: "storage_location",
-        label_ko: "저장 위치",
-        label_en: "Storage Location",
-        type: "select",
-        required: true,
-        options: [
-          { value: "on_device", label_ko: "기기 내부", label_en: "On device" },
-          { value: "remote", label_ko: "원격 (syslog/cloud)", label_en: "Remote (syslog/cloud)" },
-          { value: "hybrid", label_ko: "혼합", label_en: "Hybrid" },
-        ],
-      },
-      {
-        name: "includes_timestamps",
-        label_ko: "타임스탬프 포함",
-        label_en: "Includes Timestamps",
-        type: "select",
-        required: true,
-        options: [
-          { value: "yes", label_ko: "예 (실시간 소스 있음)", label_en: "Yes (real-time source)" },
-          { value: "time_related", label_ko: "시간 관련 정보 (실시간 소스 없음)", label_en: "Time-related info (no RT source)" },
-          { value: "no", label_ko: "아니오", label_en: "No" },
-        ],
-      },
-      {
-        name: "integrity_protected",
-        label_ko: "로그 무결성 보호",
-        label_en: "Integrity Protected",
-        type: "select",
-        required: true,
-        options: [
-          { value: "yes", label_ko: "예 (추가전용·서명·원격전송)", label_en: "Yes (append-only/signed/forwarded)" },
-          { value: "no", label_ko: "아니오", label_en: "No" },
-        ],
-      },
-      {
-        name: "min_event_count",
-        label_ko: "최소 보관 이벤트 수",
-        label_en: "Minimum Events Retained",
-        type: "text",
-        placeholder: "예: 최근 1,000개 이벤트 / latest 1000 events",
-      },
-    ],
-  },
-  {
-    kind: "deletion_mechanism",
-    category: "mechanism",
-    mechanismCode: "DLM",
-    title_ko: "삭제 메커니즘 (DLM)",
-    title_en: "Deletion Mechanisms (DLM)",
-    description_ko:
-      "사용자의 개인정보·민감 보안 파라미터를 삭제할 수 있는 메커니즘 인스턴스. EN 18031-2 DLM-1 요구사항.",
-    description_en:
-      "Instances of mechanisms that delete user personal data or sensitive security parameters. EN 18031-2 DLM-1.",
-    namePlaceholder: "예: 공장 초기화 / e.g., Factory reset",
-    listColumns: ["trigger_method", "scope", "deletes_cross_store"],
-    metadataFields: [
-      {
-        name: "trigger_method",
-        label_ko: "실행 방법",
-        label_en: "Trigger Method",
-        type: "select",
-        required: true,
-        options: [
-          { value: "user_action", label_ko: "사용자 직접 실행 (UI/버튼)", label_en: "User action (UI/button)" },
-          { value: "admin_action", label_ko: "관리자/인가된 엔티티 실행", label_en: "Admin / authorized entity" },
-          { value: "api", label_ko: "API 호출", label_en: "API" },
-          { value: "automatic", label_ko: "자동 (조건 충족 시)", label_en: "Automatic (on condition)" },
-          { value: "other", label_ko: "기타", label_en: "Other" },
-        ],
-      },
-      {
-        name: "scope",
-        label_ko: "삭제 범위",
-        label_en: "Deletion Scope",
-        type: "select",
-        required: true,
-        options: [
-          { value: "all_user_data", label_ko: "모든 사용자 데이터 (공장 초기화급)", label_en: "All user data (factory reset-like)" },
-          { value: "selective", label_ko: "선택적 (항목별)", label_en: "Selective (per item)" },
-          { value: "specific", label_ko: "특정 자산만", label_en: "Specific asset only" },
-        ],
-      },
-      {
-        name: "deletes_cross_store",
-        label_ko: "외부 저장소까지 삭제",
-        label_en: "Deletes Across Stores",
-        type: "select",
-        required: true,
-        options: [
-          { value: "yes", label_ko: "예 (기기·백엔드·제3자 모두)", label_en: "Yes (device + backend + third-party)" },
-          { value: "device_only", label_ko: "기기만", label_en: "Device only" },
-          { value: "device_backend", label_ko: "기기 + 자사 백엔드", label_en: "Device + own backend" },
-          { value: "no", label_ko: "아니오", label_en: "No" },
-        ],
-      },
-      {
-        name: "secure_erase",
-        label_ko: "안전 삭제 수행 (복구 불가)",
-        label_en: "Secure Erase",
-        type: "select",
-        options: [
-          { value: "yes", label_ko: "예 (cryptographic erase, overwrite)", label_en: "Yes (cryptographic erase/overwrite)" },
-          { value: "no", label_ko: "아니오 (논리적 삭제)", label_en: "No (logical delete only)" },
-          { value: "unknown", label_ko: "확인 불가", label_en: "Unknown" },
-        ],
-      },
-    ],
-  },
-  {
-    kind: "user_notification_mechanism",
-    category: "mechanism",
-    mechanismCode: "UNM",
-    title_ko: "사용자 알림 메커니즘 (UNM)",
-    title_en: "User Notification Mechanisms (UNM)",
-    description_ko:
-      "개인정보·보안 관련 변경을 사용자에게 알리는 메커니즘 인스턴스. EN 18031-2 UNM-1/-2에서 반복 평가됩니다.",
-    description_en:
-      "Instances of mechanisms that notify the user about privacy/security-related changes. Iterated by EN 18031-2 UNM-1/-2.",
-    namePlaceholder: "예: 상태 LED 알림 / e.g., Status LED / push notification",
-    listColumns: ["channel", "describes_change", "describes_impact"],
-    metadataFields: [
-      {
-        name: "channel",
-        label_ko: "알림 수단",
-        label_en: "Notification Channel",
-        type: "select",
-        required: true,
-        options: [
-          { value: "ui_screen", label_ko: "기기 UI (화면)", label_en: "Device UI (screen)" },
-          { value: "led", label_ko: "LED 표시등", label_en: "LED indicator" },
-          { value: "sound", label_ko: "소리·음성", label_en: "Sound / voice" },
-          { value: "companion_app", label_ko: "연동 모바일 앱", label_en: "Companion mobile app" },
-          { value: "email", label_ko: "이메일", label_en: "Email" },
-          { value: "push", label_ko: "푸시 알림", label_en: "Push notification" },
-          { value: "multi", label_ko: "복수 수단", label_en: "Multi-channel" },
-          { value: "other", label_ko: "기타", label_en: "Other" },
-        ],
-      },
-      {
-        name: "describes_change",
-        label_ko: "변경 사항 설명 포함",
-        label_en: "Describes Change",
-        type: "select",
-        required: true,
-        options: [
-          { value: "yes", label_ko: "예", label_en: "Yes" },
-          { value: "no", label_ko: "아니오", label_en: "No" },
-        ],
-      },
-      {
-        name: "describes_impact",
-        label_ko: "프라이버시 영향 설명 포함",
-        label_en: "Describes Privacy Impact",
-        type: "select",
-        required: true,
-        options: [
-          { value: "yes", label_ko: "예", label_en: "Yes" },
-          { value: "no", label_ko: "아니오", label_en: "No" },
-        ],
-      },
-      {
-        name: "triggers",
-        label_ko: "알림 트리거 (어떤 경우)",
-        label_en: "Triggers",
-        type: "text",
-        placeholder: "예: 펌웨어 업데이트·설정 변경·카메라 활성화 / firmware update, config change, camera on",
-      },
-    ],
+    // Named inline from SUM-1 DT (when PASS). Hidden from the main asset inventory.
+    kind: "sum_instance",
+    category: "asset",
+    hideFromInventory: true,
+    title_ko: "보안 업데이트 메커니즘",
+    title_en: "Secure Update Mechanism",
+    description_ko: "SUM-1이 PASS인 경우 등록한 업데이트 메커니즘. SUM-2/SUM-3의 반복 단위.",
+    description_en: "Secure update mechanism registered from SUM-1 (when PASS); iterated by SUM-2/SUM-3.",
+    namePlaceholder: "예: OTA 펌웨어 업데이트 / 서명된 이미지 업데이트",
+    listColumns: [],
+    metadataFields: [],
   },
 ];
 
-// Kind lists filtered by category, useful for page routing/rendering.
+// Kind list filtered by category — only "asset" category remains after the
+// mechanism inventory removal. Also excludes hidden kinds like acm_instance.
 export const ASSET_ONLY_KINDS: AssetKindConfig[] = ASSET_KINDS.filter(
-  (k) => k.category === "asset",
-);
-export const MECHANISM_KINDS: AssetKindConfig[] = ASSET_KINDS.filter(
-  (k) => k.category === "mechanism",
+  (k) => k.category === "asset" && !k.hideFromInventory,
 );
 
 // True if a kind is relevant under ANY of the given applicable standards.
@@ -1092,25 +727,31 @@ export function kindConfig(kind: string): AssetKindConfig | undefined {
   return ASSET_KINDS.find((k) => k.kind === kind);
 }
 
+/**
+ * Look up a metadata field's bilingual label by (kindConfig, fieldName).
+ * Returns `{ ko, en }` with the field's Korean/English labels. Returns
+ * `{ ko: fieldName, en: fieldName }` as a fallback when not found.
+ */
 export function fieldLabel(
   kind: AssetKindConfig,
   fieldName: string,
-): { ko: string; en: string } | null {
-  if (fieldName === "description") {
-    return { ko: "설명", en: "Description" };
-  }
-  const f = kind.metadataFields.find((f) => f.name === fieldName);
-  if (!f) return null;
+): { ko: string; en: string } {
+  const f = kind.metadataFields.find((m) => m.name === fieldName);
+  if (!f) return { ko: fieldName, en: fieldName };
   return { ko: f.label_ko, en: f.label_en };
 }
 
+/**
+ * Look up a select-option's bilingual label by (kindConfig, fieldName, optionValue).
+ * Returns `{ ko, en }`. Falls back to `{ ko: value, en: value }`.
+ */
 export function optionLabel(
   kind: AssetKindConfig,
   fieldName: string,
-  value: string,
+  optionValue: string,
 ): { ko: string; en: string } {
-  const f = kind.metadataFields.find((f) => f.name === fieldName);
-  const opt = f?.options?.find((o) => o.value === value);
-  if (opt) return { ko: opt.label_ko, en: opt.label_en };
-  return { ko: value, en: value };
+  const f = kind.metadataFields.find((m) => m.name === fieldName);
+  const o = f?.options?.find((opt) => opt.value === optionValue);
+  if (!o) return { ko: optionValue, en: optionValue };
+  return { ko: o.label_ko, en: o.label_en };
 }

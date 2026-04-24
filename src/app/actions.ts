@@ -216,6 +216,109 @@ export async function updateAsset(input: UpdateAssetInput) {
   revalidatePath(`/projects/${input.projectId}/assets/review`);
 }
 
+// ── ACM instances (named inline from ACM-2 DT) ────────────────────
+export type AcmPasswordType =
+  | "factory_default"
+  | "user_set"
+  | "third_party"
+  | "none"
+  | "";
+
+export type AcmInstanceInput = {
+  projectId: string;
+  name: string;
+  interfaceNetwork: boolean;
+  interfaceUser: boolean;
+  interfaceMachine: boolean;
+  passwordType: AcmPasswordType; // empty = unanswered
+};
+
+function acmMetadata(input: Omit<AcmInstanceInput, "projectId" | "name">): string {
+  return JSON.stringify({
+    interface_network: input.interfaceNetwork ? "yes" : "no",
+    interface_user: input.interfaceUser ? "yes" : "no",
+    interface_machine: input.interfaceMachine ? "yes" : "no",
+    password_type: input.passwordType,
+  });
+}
+
+export async function createAcmInstance(input: AcmInstanceInput): Promise<{ id: string }> {
+  await assertProjectEditable(input.projectId);
+  const row = await prisma.asset.create({
+    data: {
+      projectId: input.projectId,
+      kind: "acm_instance",
+      name: input.name.trim() || "(이름 없음)",
+      metadata: acmMetadata(input),
+    },
+  });
+  revalidatePath(`/projects/${input.projectId}/dt`);
+  return { id: row.id };
+}
+
+export async function updateAcmInstance(
+  input: AcmInstanceInput & { id: string },
+) {
+  await assertProjectEditable(input.projectId);
+  await prisma.asset.update({
+    where: { id: input.id },
+    data: {
+      name: input.name.trim() || "(이름 없음)",
+      metadata: acmMetadata(input),
+    },
+  });
+  revalidatePath(`/projects/${input.projectId}/dt`);
+}
+
+export async function deleteAcmInstance(input: {
+  projectId: string;
+  id: string;
+}) {
+  await assertProjectEditable(input.projectId);
+  await prisma.asset.delete({ where: { id: input.id } });
+  revalidatePath(`/projects/${input.projectId}/dt`);
+}
+
+// ── SUM instances (named inline from SUM-1 DT when PASS) ──────────
+export async function createSumInstance(input: {
+  projectId: string;
+  name: string;
+}): Promise<{ id: string }> {
+  await assertProjectEditable(input.projectId);
+  const row = await prisma.asset.create({
+    data: {
+      projectId: input.projectId,
+      kind: "sum_instance",
+      name: input.name.trim() || "(이름 없음)",
+      metadata: "{}",
+    },
+  });
+  revalidatePath(`/projects/${input.projectId}/dt`);
+  return { id: row.id };
+}
+
+export async function updateSumInstance(input: {
+  projectId: string;
+  id: string;
+  name: string;
+}) {
+  await assertProjectEditable(input.projectId);
+  await prisma.asset.update({
+    where: { id: input.id },
+    data: { name: input.name.trim() || "(이름 없음)" },
+  });
+  revalidatePath(`/projects/${input.projectId}/dt`);
+}
+
+export async function deleteSumInstance(input: {
+  projectId: string;
+  id: string;
+}) {
+  await assertProjectEditable(input.projectId);
+  await prisma.asset.delete({ where: { id: input.id } });
+  revalidatePath(`/projects/${input.projectId}/dt`);
+}
+
 // Save a single DT node answer. Upserts manually because SQLite treats NULLs
 // as distinct in unique indexes (would prevent upsert for global requirements).
 export async function saveDTNodeAnswer(input: {

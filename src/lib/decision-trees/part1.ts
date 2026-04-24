@@ -258,9 +258,10 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
         { nodeId: "DN-1", answer: "yes" },
         { nodeId: "DN-2", answer: "yes" },
         { nodeId: "DN-3", answer: "yes" },
+        { nodeId: "DN-4", answer: "no" },
       ],
-      reason_ko: "ACM-1에서 이 자산의 공공 접근·환경 보호·법적 요건 사유로 NOT APPLICABLE 처리되어, ACM-2 평가가 필요하지 않습니다.",
-      reason_en: "ACM-1 resolved this asset to NOT APPLICABLE (public access / environment / legal), so ACM-2 does not apply.",
+      reason_ko: "ACM-1 결과에 따라 ACM-2 평가가 필요하지 않습니다 (공공 접근·환경 보호·법적 사유로 NOT APPLICABLE이거나, ACM이 없어 FAIL 처리된 경우).",
+      reason_en: "ACM-2 does not apply given the ACM-1 outcome (NOT APPLICABLE via public access / environment / legal, or FAIL because no ACM exists).",
     },
     rootNodeId: "DN-1",
     nodes: {
@@ -281,10 +282,10 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
     requirementText_ko:
       "ACM-1에서 요구되는 접근 통제 메커니즘은 기밀 네트워크/보안 데이터 읽기, 민감 데이터 수정, 또는 네트워크/보안 기능 사용이 가능한 네트워크 인터페이스를 통한 관리 대상 접근에 인증을 사용해야 한다. 단, 의도된 기능상 인증 없는 접근이 필요하거나 대상 환경이 이미 접근을 제한하는 경우는 예외이다.",
     iterateOver: {
-      description_en: "For each access control mechanism that manages access via a network interface",
-      description_ko: "네트워크 인터페이스를 통한 접근을 관리하는 각 ACM에 대해",
-      kinds: ["access_control_mechanism"],
-      metadataIn: { field: "managed_via", values: ["network_interface", "mixed"] },
+      description_en: "For each ACM (via network-interface) registered in ACM-2",
+      description_ko: "ACM-2에서 등록된 각 네트워크 인터페이스 기반 ACM에 대해",
+      kinds: ["acm_instance"],
+      metadataIn: {"field":"interface_network","values":["yes"]},
     },
     evidenceFields: [
       { id: "E.Info.AUM-1-1.ACM.NetworkInterface", scope: "per_asset", required: true, multiline: true, group_ko: "관리 대상 접근 설명", group_en: "Managed Access", prompt_ko: "관리 대상 접근이 이루어지는 네트워크 인터페이스를 기술하세요.", prompt_en: "Describe the network interfaces for the managed access." },
@@ -314,10 +315,10 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
     requirementText_ko:
       "ACM-1에서 요구되는 접근 통제 메커니즘은 민감 데이터 읽기/수정/보안 기능 사용이 가능한 사용자 인터페이스를 통한 관리 대상 접근에 인증을 사용해야 한다. 단, 대상 환경이 엔티티 주장의 정확성에 대한 신뢰를 제공하거나, 의도된 기능·법적 요건상 인증 없는 읽기 전용 접근이 필요한 경우는 예외이다.",
     iterateOver: {
-      description_en: "For each access control mechanism that manages access via a user interface",
-      description_ko: "사용자 인터페이스를 통한 접근을 관리하는 각 ACM에 대해",
-      kinds: ["access_control_mechanism"],
-      metadataIn: { field: "managed_via", values: ["user_interface", "mixed"] },
+      description_en: "For each ACM (via user-interface) registered in ACM-2",
+      description_ko: "ACM-2에서 등록된 각 사용자 인터페이스 기반 ACM에 대해",
+      kinds: ["acm_instance"],
+      metadataIn: {"field":"interface_user","values":["yes"]},
     },
     evidenceFields: [
       { id: "E.Info.AUM-1-2.ACM.UserInterfaces", scope: "per_asset", required: true, multiline: true, group_ko: "관리 대상 접근 설명", group_en: "Managed Access", prompt_ko: "관리 대상 접근이 이루어지는 사용자 인터페이스를 기술하세요.", prompt_en: "Describe the user interfaces for the managed access." },
@@ -347,9 +348,9 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
     requirementText_en: "Authentication mechanisms required by AUM-1 must appropriately verify the entity claim(s) based on examining evidence from at least one element of the categories knowledge, possession and inherence (one-factor authentication).",
     requirementText_ko: "AUM-1에서 요구되는 인증 메커니즘은 지식·소유·고유성 카테고리 중 최소 1개 요소의 증거를 검증하여 엔티티 주장을 확인해야 한다(단일 요소 인증).",
     iterateOver: {
-      description_en: "For each registered authentication mechanism",
-      description_ko: "등록된 각 인증 메커니즘(AUM)에 대해",
-      kinds: ["authentication_mechanism"],
+      description_en: "For each ACM registered in ACM-2",
+      description_ko: "ACM-2에서 등록된 각 ACM에 대해",
+      kinds: ["acm_instance"],
     },
     evidenceFields: [
       { id: "E.Info.AUM-2.AuthenticationMechanism.AuthFactor", scope: "per_asset", required: true, multiline: true, group_ko: "인증자(Authenticator) 설명", group_en: "Authenticator", prompt_ko: "이 인증 메커니즘이 사용하는 인증자의 종류와 속성(지식·소유·고유성 중 어느 요소인지)을 기술하세요.", prompt_en: "Describe the authenticator and which factor category (knowledge/possession/inherence) it uses." },
@@ -370,9 +371,9 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
     requirementText_en: "Authentication mechanisms required by AUM-1 must validate all relevant properties of the used authenticators, dependent on the available information in the operational environment of use.",
     requirementText_ko: "AUM-1에서 요구되는 인증 메커니즘은 운영 환경에서 이용 가능한 정보에 따라 사용되는 인증자의 모든 관련 속성을 검증해야 한다.",
     iterateOver: {
-      description_en: "For each registered authentication mechanism",
-      description_ko: "등록된 각 인증 메커니즘(AUM)에 대해",
-      kinds: ["authentication_mechanism"],
+      description_en: "For each ACM registered in ACM-2",
+      description_ko: "ACM-2에서 등록된 각 ACM에 대해",
+      kinds: ["acm_instance"],
     },
     evidenceFields: [
       { id: "E.Info.AUM-3.AUM.AuthVal", scope: "per_asset", required: true, multiline: true, group_ko: "인증자 검증", group_en: "Authenticator Validation", prompt_ko: "인증자 검증이 어떻게 수행되는지(구현 카테고리와 관련 속성)를 기술하세요.", prompt_en: "Describe how the validation of the authenticator is performed (implementation category and relevant properties)." },
@@ -394,9 +395,9 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
     requirementText_en: "Authentication mechanisms required by AUM-1 shall allow for changing the authenticator, except for authenticators where conflicting security goals do not allow for a change.",
     requirementText_ko: "AUM-1에서 요구되는 인증 메커니즘은 인증자 변경이 가능해야 한다. 단, 상충하는 보안 목표로 변경이 허용되지 않는 경우는 예외이다.",
     iterateOver: {
-      description_en: "For each registered authentication mechanism",
-      description_ko: "등록된 각 인증 메커니즘(AUM)에 대해",
-      kinds: ["authentication_mechanism"],
+      description_en: "For each ACM registered in ACM-2",
+      description_ko: "ACM-2에서 등록된 각 ACM에 대해",
+      kinds: ["acm_instance"],
     },
     evidenceFields: [
       { id: "E.Info.AUM-4.AUM.ConfSecGoals", scope: "per_asset", multiline: true, dependsOnAnswer: { nodeId: "DN-1", answer: "yes" }, group_ko: "보안 목표 충돌 (DN-1 YES)", group_en: "Conflicting Security Goals", prompt_ko: "보안 개념에서 인증자 변경과 충돌하는 보안 목표를 기술하세요.", prompt_en: "Describe the conflicting security goals from the security concept preventing authenticator change." },
@@ -419,15 +420,10 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
     requirementText_en: "If factory default passwords are used by an authentication mechanism required by AUM-1, they shall: (a) be unique per equipment and follow best practice concerning strength; or (b) be enforced to be changed by the user before or on first use.",
     requirementText_ko: "AUM-1에서 요구되는 인증 메커니즘이 공장 기본 비밀번호를 사용하는 경우, 비밀번호는 (a) 기기별로 고유하며 모범 사례 강도를 따르거나, (b) 최초 사용 전·직후에 사용자가 변경하도록 강제되어야 한다.",
     iterateOver: {
-      description_en:
-        "For each on-device authentication mechanism that uses factory default passwords",
-      description_ko:
-        "기기 내 비밀번호로서 공장 기본 비밀번호를 사용하는 각 인증 메커니즘(AUM)에 대해",
-      kinds: ["authentication_mechanism"],
-      metadataIn: [
-        { field: "password_scope", values: ["device_local"] },
-        { field: "uses_factory_default", values: ["yes"] },
-      ],
+      description_en: "For each ACM registered in ACM-2",
+      description_ko: "ACM-2에서 등록된 각 ACM에 대해",
+      kinds: ["acm_instance"],
+      metadataIn: { field: "password_type", values: ["factory_default"] },
     },
     evidenceFields: [
       { id: "E.Info.AUM-5-1.AUM.PwdProperty", scope: "per_asset", required: true, multiline: true, group_ko: "비밀번호 속성", group_en: "Password Property", prompt_ko: "공장 기본 비밀번호의 속성을 기술하세요: (UniqueBestPractice 기반이면) 기기별 고유성 및 모범 사례 강도 구현 방식; 또는 (EnforceSettingFirstUse 기반이면) 최초 사용 전·직후 변경 강제 방식.", prompt_en: "Describe factory default password properties: if UniqueBestPractice—uniqueness and best-practice strength; if EnforceSettingFirstUse—how change is enforced on/before first use." },
@@ -450,16 +446,10 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
     requirementText_en: "If passwords other than factory default passwords are used by an authentication mechanism required by AUM-1, they shall: (a) be enforced to be set by the user or on first use and before network connection; or (b) be defined by an authorized entity within a network where access is limited to authorized entities; or (c) be generated by the equipment using best practice concerning strength and only communicated to an authorized entity within such a network.",
     requirementText_ko: "AUM-1에서 요구되는 인증 메커니즘이 공장 기본 외의 비밀번호를 사용하는 경우, 비밀번호는 (a) 네트워크 연결 전 사용자 또는 최초 사용 시 설정되거나, (b) 접근이 제한된 네트워크 내 인가된 엔티티가 정의하거나, (c) 기기가 모범 사례 강도로 생성하여 해당 네트워크 내 인가된 엔티티에게만 전달되어야 한다.",
     iterateOver: {
-      description_en:
-        "For each on-device authentication mechanism using knowledge (password) factor with non-factory-default passwords",
-      description_ko:
-        "기기 내 비밀번호로서 지식(비밀번호) 요소를 사용하며 공장 기본 비밀번호가 아닌 각 인증 메커니즘(AUM)에 대해",
-      kinds: ["authentication_mechanism"],
-      metadataIn: [
-        { field: "password_scope", values: ["device_local"] },
-        { field: "factor_type", values: ["knowledge", "multi_factor"] },
-        { field: "uses_factory_default", values: ["no"] },
-      ],
+      description_en: "For each ACM registered in ACM-2",
+      description_ko: "ACM-2에서 등록된 각 ACM에 대해",
+      kinds: ["acm_instance"],
+      metadataIn: { field: "password_type", values: ["user_set"] },
     },
     evidenceFields: [
       { id: "E.Info.AUM-5-2.AUM.PwdProperty", scope: "per_asset", required: true, multiline: true, group_ko: "비밀번호 속성", group_en: "Password Property", prompt_ko: "공장 기본 외 비밀번호의 속성을 기술하세요: (SettingFirstUse) 설정 강제 방식과 네트워크 연결 방지 수단; 또는 (DefinedAuthEntity) 인가된 엔티티 정의 제한과 미인가 네트워크 내 정의 방지 수단; 또는 (EquipmentGenerated) 모범 사례 강도와 미인가 전달 방지 수단.", prompt_en: "Describe non-factory-default password properties for the selected IC: SettingFirstUse/DefinedAuthEntity/EquipmentGenerated." },
@@ -482,15 +472,10 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
     requirementText_en: "Authentication mechanisms required by AUM-1 must be resilient against brute-force attacks.",
     requirementText_ko: "AUM-1에서 요구되는 인증 메커니즘은 무차별 대입 공격(brute-force)에 대한 복원력을 가져야 한다.",
     iterateOver: {
-      description_en:
-        "For each on-device authentication mechanism that uses a knowledge (password/PIN) or multi-factor authenticator",
-      description_ko:
-        "기기 내 비밀번호를 사용하는 지식(비밀번호·PIN)·다중 요소 각 인증 메커니즘(AUM)에 대해",
-      kinds: ["authentication_mechanism"],
-      metadataIn: [
-        { field: "password_scope", values: ["device_local"] },
-        { field: "factor_type", values: ["knowledge", "multi_factor"] },
-      ],
+      description_en: "For each ACM registered in ACM-2",
+      description_ko: "ACM-2에서 등록된 각 ACM에 대해",
+      kinds: ["acm_instance"],
+      metadataIn: { field: "password_type", values: ["factory_default", "user_set"] },
     },
     evidenceFields: [
       { id: "E.Info.AUM-6.AUM.BFProtection", scope: "per_asset", required: true, multiline: true, group_ko: "무차별 대입 방어", group_en: "Brute-force Protection", prompt_ko: "구현 카테고리를 고려하여 무차별 대입 공격에 대한 복원력이 어떻게 보장되는지 기술하세요 (시도 제한·지연·잠금 등).", prompt_en: "Describe how brute-force resilience is ensured (attempt limit, delay, lockout) per implementation category." },
@@ -540,9 +525,9 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
     requirementText_en: "Each update mechanism required by SUM-1 shall only install software whose integrity and authenticity are valid at the time of the installation.",
     requirementText_ko: "SUM-1에서 요구되는 각 업데이트 메커니즘은 설치 시점에 무결성과 진본성이 유효한 소프트웨어만 설치해야 한다.",
     iterateOver: {
-      description_en: "For each registered secure update mechanism",
-      description_ko: "등록된 각 보안 업데이트 메커니즘(SUM)에 대해",
-      kinds: ["secure_update_mechanism"],
+      description_en: "For each SUM mechanism registered in SUM-1",
+      description_ko: "SUM-1에서 등록된 각 업데이트 메커니즘에 대해",
+      kinds: ["sum_instance"],
     },
     evidenceFields: [
       { id: "E.Info.SUM-2.SUM", scope: "per_asset", required: true, multiline: true, group_ko: "SUM 구현", group_en: "SUM Implementation", prompt_ko: "이 업데이트 메커니즘의 전반적 설명을 기술하세요 (대상 소프트웨어, 설치 절차 등).", prompt_en: "Describe the update mechanism overall (target software, installation procedure)." },
@@ -567,9 +552,9 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
     requirementText_en: "Each update mechanism required by SUM-1 shall be capable of updating the software: (a) without human intervention; or (b) via scheduling under human approval; or (c) via triggering under human approval/supervision where required to prevent unexpected damage.",
     requirementText_ko: "SUM-1에서 요구되는 각 업데이트 메커니즘은 (a) 사람 개입 없이, (b) 사람 승인 하에 예약하여, 또는 (c) 예상치 못한 손상 방지가 필요한 경우 사람 승인·감독 하에 업데이트할 수 있어야 한다.",
     iterateOver: {
-      description_en: "For each registered secure update mechanism",
-      description_ko: "등록된 각 보안 업데이트 메커니즘(SUM)에 대해",
-      kinds: ["secure_update_mechanism"],
+      description_en: "For each SUM mechanism registered in SUM-1",
+      description_ko: "SUM-1에서 등록된 각 업데이트 메커니즘에 대해",
+      kinds: ["sum_instance"],
     },
     evidenceFields: [
       { id: "E.Info.SUM-3.SUM.Automation", scope: "per_asset", required: true, multiline: true, group_ko: "자동화 수단", group_en: "Automation", prompt_ko: "업데이트 메커니즘을 자동화하는 수단을 기술하세요 (사람 개입 없이·예약·트리거 중 어느 방식 및 구체적 절차).", prompt_en: "Describe the means to automate the update mechanism (without human intervention / scheduled / triggered)." },
@@ -1029,9 +1014,10 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
     requirementText_en: "Optional network interfaces or services affecting security/network assets that are part of the factory default state shall have an option for an authorized user to enable/disable them.",
     requirementText_ko: "공장 기본 상태에 포함되며 security/network asset에 영향을 미치는 선택적 네트워크 인터페이스·서비스는 인가된 사용자가 활성화·비활성화할 수 있는 옵션을 제공해야 한다.",
     iterateOver: {
-      description_en: "For each optional network interface and optional exposed service in factory default state",
-      description_ko: "공장 기본 상태의 각 선택적 네트워크 인터페이스·노출 서비스에 대해",
-      kinds: ["network_interface", "network_service"],
+      description_en: "For each optional exposed network service in factory default state",
+      description_ko: "공장 기본 상태의 각 선택적 네트워크 서비스에 대해 (자산 인벤토리에서 필수 여부가 \"선택\"인 것)",
+      kinds: ["network_service"],
+      metadataIn: { field: "optionality", values: ["optional"] },
     },
     evidenceFields: [
       { id: "E.Info.GEC-3.NetworkInterface.Exposure", scope: "per_asset", required: true, multiline: true, group_ko: "인터페이스·서비스 노출", group_en: "Interface/Service Exposure", prompt_ko: "공장 기본 상태의 이 선택적 네트워크 인터페이스·노출 서비스를 기술하세요. 인가된 사용자가 활성화·비활성화할 수 있는 옵션 존재 여부 포함.", prompt_en: "Describe this optional interface/service in factory default, including whether an authorized user enable/disable option exists." },
@@ -1055,9 +1041,10 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
     requirementText_en: "User documentation must describe all exposed network interfaces and services delivered as part of the factory default state.",
     requirementText_ko: "사용자 문서는 공장 기본 상태의 일부로 제공되는 모든 노출된 네트워크 인터페이스 및 서비스를 기술해야 한다.",
     iterateOver: {
-      description_en: "For each network interface and service exposed via network interfaces",
-      description_ko: "네트워크 인터페이스를 통해 노출되는 각 인터페이스·서비스에 대해",
-      kinds: ["network_interface", "network_service"],
+      description_en: "For each network interface exposed in factory default state",
+      description_ko: "공장 기본 상태에서 노출된 각 네트워크 인터페이스에 대해 (자산 인벤토리에서 \"노출됨\"으로 체크된 것)",
+      kinds: ["network_interface"],
+      metadataIn: { field: "exposed_factory_default", values: ["yes"] },
     },
     evidenceFields: [
       { id: "E.Info.GEC-4.UserDoc.NetworkInterface.Exposure", scope: "per_asset", required: true, multiline: true, group_ko: "사용자 문서", group_en: "User Documentation", prompt_ko: "공장 기본 상태의 해당 노출 네트워크 인터페이스·노출 서비스에 대한 사용자 문서 내용을 기술하세요.", prompt_en: "Provide user documentation content for the exposed network interface/service in factory default state." },

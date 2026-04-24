@@ -37,6 +37,7 @@ import {
 import { StructuredEvidenceForm } from "./structured-evidence-form";
 import { EvidenceForm } from "./evidence-form";
 import { LockedBanner } from "../locked-banner";
+import { requireSession } from "@/lib/auth";
 
 export default async function EvidencePage({
   params,
@@ -47,6 +48,8 @@ export default async function EvidencePage({
 }) {
   const { id } = await params;
   const { standard: standardParam } = await searchParams;
+  const session = await requireSession();
+  const isConsultant = session.role === "consultant";
 
   const project = await prisma.project.findUnique({
     where: { id },
@@ -356,82 +359,104 @@ export default async function EvidencePage({
           </CardContent>
         </Card>
       ) : (
-        blocks.map((block) => {
-          const mech = MECHANISMS.find((m) => m.code === block.reqMechanism);
+        groupByMechanism(blocks).map(({ code, blocks: groupBlocks }) => {
+          const mech = MECHANISMS.find((m) => m.code === code);
           return (
-            <Card key={block.reqId}>
-              <CardHeader>
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-                      <span className="rounded bg-primary/10 px-2 py-0.5 font-mono text-xs text-primary">
-                        {block.reqId}
-                      </span>
-                      <span className="truncate">{block.reqTitle}</span>
-                    </CardTitle>
-                    <CardDescription className="mt-1">
-                      {mech?.name_ko} / {block.reqClause}
-                      {block.usesStructured && (
-                        <Badge variant="secondary" className="ml-2 text-[10px]">
-                          Required Info (EN 18031)
-                        </Badge>
-                      )}
-                    </CardDescription>
-                  </div>
-                  <Link
-                    href={`/projects/${project.id}/dt/${block.reqId}?standard=${selectedStandard}`}
-                    className="shrink-0 text-xs text-primary underline"
-                  >
-                    DT 평가로 이동
-                  </Link>
+            <details
+              key={code}
+              className="group rounded-lg border bg-card"
+              open
+            >
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-4 py-3 hover:bg-muted/40">
+                <div className="flex items-center gap-2">
+                  <span className="inline-block size-1.5 shrink-0 rotate-0 rounded-sm border-b-2 border-r-2 border-foreground transition-transform group-open:rotate-45" />
+                  <span className="rounded bg-primary/10 px-2 py-0.5 font-mono text-xs text-primary">
+                    {code}
+                  </span>
+                  <span className="font-medium">{mech?.name_ko ?? code}</span>
+                  <Badge variant="outline" className="text-[10px]">
+                    {groupBlocks.length}개 요구사항
+                  </Badge>
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {block.iterations.map((it) => (
-                  <div
-                    key={`${block.reqId}-${it.assetId ?? "global"}`}
-                    className="rounded-lg border p-4"
-                  >
-                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                      <div className="text-sm">
-                        {it.assetLabel ? (
-                          <>
-                            <span className="font-medium">
-                              {it.assetLabel.split(" · ")[0]}
+              </summary>
+              <div className="space-y-4 border-t p-4">
+                {groupBlocks.map((block) => (
+                  <Card key={block.reqId}>
+                    <CardHeader>
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+                            <span className="rounded bg-primary/10 px-2 py-0.5 font-mono text-xs text-primary">
+                              {block.reqId}
                             </span>
-                            <span className="ml-2 text-xs text-muted-foreground">
-                              {it.assetLabel.split(" · ").slice(1).join(" · ")}
-                            </span>
-                          </>
-                        ) : (
-                          <span className="font-medium">기기 전체</span>
-                        )}
+                            <span className="truncate">{block.reqTitle}</span>
+                          </CardTitle>
+                          <CardDescription className="mt-1">
+                            {block.reqClause}
+                            {block.usesStructured && (
+                              <Badge variant="secondary" className="ml-2 text-[10px]">
+                                Required Info (EN 18031)
+                              </Badge>
+                            )}
+                          </CardDescription>
+                        </div>
+                        <Link
+                          href={`/projects/${project.id}/dt/${block.reqId}?standard=${selectedStandard}`}
+                          className="shrink-0 text-xs text-primary underline"
+                        >
+                          DT 평가로 이동
+                        </Link>
                       </div>
-                      <OutcomeBadge outcome={it.outcome} />
-                    </div>
-                    {block.usesStructured ? (
-                      <StructuredEvidenceForm
-                        projectId={project.id}
-                        assetId={it.assetId}
-                        requirementId={block.reqId}
-                        fields={it.applicableFields}
-                        pathSummary={it.pathSummary}
-                        readOnly={project.finalizedAt !== null}
-                      />
-                    ) : (
-                      <EvidenceForm
-                        projectId={project.id}
-                        assetId={it.assetId}
-                        mechanismCode={block.reqMechanism}
-                        requirementId={block.reqId}
-                        steps={it.pathSteps}
-                        readOnly={project.finalizedAt !== null}
-                      />
-                    )}
-                  </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {block.iterations.map((it) => (
+                        <div
+                          key={`${block.reqId}-${it.assetId ?? "global"}`}
+                          className="rounded-lg border p-4"
+                        >
+                          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-sm">
+                              {it.assetLabel ? (
+                                <>
+                                  <span className="font-medium">
+                                    {it.assetLabel.split(" · ")[0]}
+                                  </span>
+                                  <span className="ml-2 text-xs text-muted-foreground">
+                                    {it.assetLabel.split(" · ").slice(1).join(" · ")}
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="font-medium">기기 전체</span>
+                              )}
+                            </div>
+                            <OutcomeBadge outcome={it.outcome} />
+                          </div>
+                          {block.usesStructured ? (
+                            <StructuredEvidenceForm
+                              projectId={project.id}
+                              assetId={it.assetId}
+                              requirementId={block.reqId}
+                              fields={it.applicableFields}
+                              pathSummary={it.pathSummary}
+                              readOnly={project.finalizedAt !== null}
+                            />
+                          ) : (
+                            <EvidenceForm
+                              projectId={project.id}
+                              assetId={it.assetId}
+                              mechanismCode={block.reqMechanism}
+                              requirementId={block.reqId}
+                              steps={it.pathSteps}
+                              readOnly={project.finalizedAt !== null}
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
                 ))}
-              </CardContent>
-            </Card>
+              </div>
+            </details>
           );
         })
       )}
@@ -443,10 +468,21 @@ export default async function EvidencePage({
             DT 평가로 / Back
           </Button>
         </Link>
-        <Button disabled>
-          최종 리포트 / Final Report
-          <ArrowRight className="ml-2 size-4" />
-        </Button>
+        {isConsultant ? (
+          <Link href={`/projects/${project.id}/assessment`}>
+            <Button>
+              기능 평가 / Technical Assessment
+              <ArrowRight className="ml-2 size-4" />
+            </Button>
+          </Link>
+        ) : (
+          <Link href={`/projects/${project.id}/report`}>
+            <Button>
+              최종 리포트 / Final Report
+              <ArrowRight className="ml-2 size-4" />
+            </Button>
+          </Link>
+        )}
       </div>
     </div>
   );
@@ -480,6 +516,23 @@ function OutcomeBadge({ outcome }: { outcome: DTOutcome | "incomplete" }) {
       진행중 / In progress
     </Badge>
   );
+}
+
+// Group requirement blocks by their mechanismCode, preserving the order in
+// which each mechanism first appears.
+function groupByMechanism<B extends { reqMechanism: string }>(
+  blocks: B[],
+): Array<{ code: string; blocks: B[] }> {
+  const order: string[] = [];
+  const byCode = new Map<string, B[]>();
+  for (const b of blocks) {
+    if (!byCode.has(b.reqMechanism)) {
+      order.push(b.reqMechanism);
+      byCode.set(b.reqMechanism, []);
+    }
+    byCode.get(b.reqMechanism)!.push(b);
+  }
+  return order.map((code) => ({ code, blocks: byCode.get(code)! }));
 }
 
 function safeJson(s: string): Record<string, string> {

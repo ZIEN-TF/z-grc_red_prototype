@@ -7,7 +7,6 @@ import {
   ClipboardList,
   FileCheck2,
   Package,
-  ShieldCheck,
   GitBranch,
   CircleDot,
   CheckCircle2,
@@ -27,7 +26,7 @@ type Step = {
   icon: React.ComponentType<{ className?: string }>;
   indent?: boolean;
   // Which status keys, if any, mark this step complete.
-  completeWhen?: "screeningComplete" | "hasAssets" | "hasMechanisms" | "hasDTAnswers";
+  completeWhen?: "screeningComplete" | "hasAssets" | "hasDTAnswers";
   // If true, only visible to consultant role.
   consultantOnly?: boolean;
 };
@@ -72,22 +71,6 @@ const STEPS: Step[] = [
     indent: true,
   },
   {
-    id: "mechanisms",
-    label_ko: "보호 메커니즘",
-    label_en: "Mechanisms",
-    path: "/mechanisms",
-    icon: ShieldCheck,
-    completeWhen: "hasMechanisms",
-  },
-  {
-    id: "mechanisms-review",
-    label_ko: "메커니즘 검토",
-    label_en: "Mechanisms Review",
-    path: "/mechanisms/review",
-    icon: Circle,
-    indent: true,
-  },
-  {
     id: "dt",
     label_ko: "Decision Tree 평가",
     label_en: "DT Evaluation",
@@ -125,7 +108,6 @@ export type SidebarProject = {
   manufacturer: string;
   screeningComplete: boolean;
   hasAssets: boolean;
-  hasMechanisms: boolean;
   hasDTAnswers: boolean;
 };
 

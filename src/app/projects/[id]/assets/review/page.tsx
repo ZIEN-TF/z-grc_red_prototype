@@ -213,17 +213,17 @@ export default async function AssetsReviewPage({
             자산 입력으로 돌아가기 / Edit Inventory
           </Button>
         </Link>
-        <Link href={`/projects/${project.id}/mechanisms`}>
+        <Link href={`/projects/${project.id}/dt`}>
           <Button>
-            보호 메커니즘 등록 / Next: Mechanism Inventory
+            Decision Tree 평가 시작 / Next: DT Evaluation
             <ArrowRight className="ml-2 size-4" />
           </Button>
         </Link>
       </div>
       <p className="text-center text-xs text-muted-foreground">
-        다음 단계: ACM·AUM·SUM·SSM·SCM·LGM 등 보호 메커니즘 인스턴스 등록 (DT 반복 대상).
+        다음 단계: 각 표준 요구사항에 대해 Decision Tree 평가를 진행합니다.
         <br />
-        Next: register protection mechanism instances (iterated by DT).
+        Next: run the Decision Tree evaluation for each requirement.
       </p>
     </div>
   );

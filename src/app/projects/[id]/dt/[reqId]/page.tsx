@@ -19,11 +19,14 @@ import {
   evaluateRequirementApplicability,
   evaluateNAFromRequirement,
   getApplicableKindsFor,
+  walkTree,
   DT_REQUIREMENTS,
 } from "@/lib/decision-trees";
 import type { StandardId } from "@/lib/mechanisms";
 import { MinusCircle } from "lucide-react";
 import { RequirementEvaluator } from "./requirement-evaluator";
+import { AcmInstancePanel } from "./acm-instance-panel";
+import { SumInstancePanel } from "./sum-instance-panel";
 
 export default async function RequirementPage({
   params,
@@ -145,13 +148,7 @@ export default async function RequirementPage({
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div>
-        <Link href={backHref}>
-          <Button variant="ghost" size="sm" className="-ml-3">
-            <ArrowLeft className="mr-1 size-4" />
-            메커니즘 목록 / Back
-          </Button>
-        </Link>
-        <h1 className="mt-2 flex flex-wrap items-baseline gap-2 text-2xl font-bold tracking-tight">
+        <h1 className="flex flex-wrap items-baseline gap-2 text-2xl font-bold tracking-tight">
           <span className="rounded bg-primary/10 px-2 py-1 font-mono text-base text-primary">
             {req.id}
           </span>
@@ -265,18 +262,124 @@ export default async function RequirementPage({
           </CardContent>
         </Card>
       ) : (
-        <RequirementEvaluator
-          projectId={project.id}
-          requirement={req}
-          matchingAssets={matchingAssets}
-          initialAnswers={initialAnswers}
-          sameAsRef={req.sameAs ? await buildSameAsRef(req.sameAs, project.id) : null}
-          autoNAByAsset={autoNAByAsset}
-          naGateMessage={naGateMessage}
-        />
+        <>
+          <RequirementEvaluator
+            projectId={project.id}
+            requirement={req}
+            matchingAssets={matchingAssets}
+            initialAnswers={initialAnswers}
+            sameAsRef={
+              req.sameAs ? await buildSameAsRef(req.sameAs, project.id) : null
+            }
+            autoNAByAsset={autoNAByAsset}
+            naGateMessage={naGateMessage}
+          />
+          {isAcm2RequirementId(req.id) && (
+            <AcmInstancePanel
+              projectId={project.id}
+              readOnly={project.finalizedAt !== null}
+              initial={await loadAcmInstances(project.id)}
+            />
+          )}
+          {isSum1RequirementId(req.id) && isSum1Pass(req, project.dtAnswers) && (
+            <SumInstancePanel
+              projectId={project.id}
+              readOnly={project.finalizedAt !== null}
+              initial={await loadSumInstances(project.id)}
+            />
+          )}
+        </>
       )}
+
+      <div className="pt-2">
+        <Link href={backHref}>
+          <Button variant="outline">
+            <ArrowLeft className="mr-2 size-4" />
+            요구사항 목록으로 / Back to DT List
+          </Button>
+        </Link>
+      </div>
     </div>
   );
+}
+
+function isAcm2RequirementId(id: string): boolean {
+  return id === "P1.ACM-2" || id === "P2.ACM-2" || id === "P3.ACM-2";
+}
+
+function isSum1RequirementId(id: string): boolean {
+  return id === "P1.SUM-1" || id === "P2.SUM-1" || id === "P3.SUM-1";
+}
+
+function isSum1Pass(
+  req: { nodes: Record<string, unknown>; rootNodeId: string } & Parameters<
+    typeof walkTree
+  >[0],
+  dtAnswers: Array<{
+    requirementId: string;
+    assetId: string | null;
+    nodeId: string;
+    answer: string;
+  }>,
+): boolean {
+  const answers: Record<string, "yes" | "no"> = {};
+  for (const d of dtAnswers) {
+    if (d.requirementId === req.id && d.assetId === null) {
+      if (d.answer === "yes" || d.answer === "no") {
+        answers[d.nodeId] = d.answer;
+      }
+    }
+  }
+  if (Object.keys(answers).length === 0) return false;
+  const walk = walkTree(req, answers);
+  return walk.kind === "outcome" && walk.outcome === "pass";
+}
+
+async function loadSumInstances(projectId: string) {
+  const rows = await prisma.asset.findMany({
+    where: { projectId, kind: "sum_instance" },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, name: true },
+  });
+  return rows.map((r) => ({ id: r.id, name: r.name }));
+}
+
+async function loadAcmInstances(projectId: string) {
+  const rows = await prisma.asset.findMany({
+    where: { projectId, kind: "acm_instance" },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, name: true, metadata: true },
+  });
+  return rows.map((r) => {
+    let meta: Record<string, string> = {};
+    try {
+      const parsed = JSON.parse(r.metadata);
+      if (parsed && typeof parsed === "object") {
+        meta = parsed as Record<string, string>;
+      }
+    } catch {}
+    const pt = meta.password_type;
+    const passwordType:
+      | "factory_default"
+      | "user_set"
+      | "third_party"
+      | "none"
+      | "" =
+      pt === "factory_default" ||
+      pt === "user_set" ||
+      pt === "third_party" ||
+      pt === "none"
+        ? pt
+        : "";
+    return {
+      id: r.id,
+      name: r.name,
+      interfaceNetwork: meta.interface_network === "yes",
+      interfaceUser: meta.interface_user === "yes",
+      interfaceMachine: meta.interface_machine === "yes",
+      passwordType,
+    };
+  });
 }
 
 async function buildSameAsRef(sameAsId: string, projectId: string) {

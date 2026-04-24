@@ -29,32 +29,15 @@ export default async function ProjectLayout({
     redirect("/forbidden");
   }
 
-  // Compute simple completion flags for sidebar badges.
-  const assetCount = project._count.assets;
+  // Completion flags for sidebar badges.
   const hasDTAnswers = project._count.dtAnswers > 0;
-  // Distinguish assets (non-mechanism) vs mechanism instances.
-  const mechanismKinds = [
-    "access_control_mechanism",
-    "authentication_mechanism",
-    "secure_update_mechanism",
-    "secure_storage_mechanism",
-    "secure_communication_mechanism",
-    "logging_mechanism",
-    "deletion_mechanism",
-    "user_notification_mechanism",
-  ];
-  const mechanismCount = await prisma.asset.count({
-    where: { projectId: id, kind: { in: mechanismKinds } },
-  });
-  const nonMechanismAssetCount = assetCount - mechanismCount;
 
   const sidebarProject = {
     id: project.id,
     name: project.name,
     manufacturer: project.manufacturer,
     screeningComplete: project.screeningComplete,
-    hasAssets: nonMechanismAssetCount > 0,
-    hasMechanisms: mechanismCount > 0,
+    hasAssets: project._count.assets > 0,
     hasDTAnswers,
   };
 

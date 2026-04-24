@@ -41,11 +41,9 @@ export default async function HomePage({
       : "all";
 
   const session = await requireSession();
+  const isConsultant = session.role === "consultant";
   const projects = await prisma.project.findMany({
-    where:
-      session.role === "consultant"
-        ? undefined
-        : { userId: session.userId },
+    where: isConsultant ? undefined : { userId: session.userId },
     orderBy: { updatedAt: "desc" },
     include: {
       _count: {
@@ -159,7 +157,7 @@ export default async function HomePage({
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((p) => (
-            <ProjectCard key={p.id} project={p} />
+            <ProjectCard key={p.id} project={p} isConsultant={isConsultant} />
           ))}
         </div>
       )}
@@ -218,7 +216,13 @@ type ProjectData = {
   };
 };
 
-function ProjectCard({ project: p }: { project: ProjectData }) {
+function ProjectCard({
+  project: p,
+  isConsultant,
+}: {
+  project: ProjectData;
+  isConsultant: boolean;
+}) {
   const standards: number[] = [];
   if (p.applicable1) standards.push(1);
   if (p.applicable2) standards.push(2);
@@ -228,6 +232,7 @@ function ProjectCard({ project: p }: { project: ProjectData }) {
     : [];
 
   const progress = computeProgress(p);
+  const status = computeStatus(p, isConsultant);
 
   return (
     <Card className={cn("flex flex-col", p.finalizedAt && "border-emerald-500/40")}>
@@ -237,20 +242,7 @@ function ProjectCard({ project: p }: { project: ProjectData }) {
             <CardTitle className="truncate text-base">{p.name}</CardTitle>
             <CardDescription className="truncate">{p.manufacturer}</CardDescription>
           </div>
-          {p.finalizedAt ? (
-            <Badge className="shrink-0 bg-emerald-600 text-white hover:bg-emerald-600">
-              <Lock className="mr-1 size-3" />
-              확정
-            </Badge>
-          ) : p.screeningComplete ? (
-            <Badge variant="secondary" className="shrink-0">
-              진행중
-            </Badge>
-          ) : (
-            <Badge variant="outline" className="shrink-0">
-              초안
-            </Badge>
-          )}
+          <StatusBadge status={status} />
         </div>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-3">
@@ -260,7 +252,12 @@ function ProjectCard({ project: p }: { project: ProjectData }) {
             <span className="font-medium text-foreground">{progress.percent}%</span>
           </div>
           <Progress value={progress.percent} className="h-1.5" />
-          <p className="text-[10px] text-muted-foreground">{progress.label}</p>
+          <p className="text-[11px] text-foreground">{status.detail}</p>
+          {progress.label !== "확정 대기" &&
+            progress.label !== "리포트 확정됨" &&
+            status.key !== "finalized" && (
+              <p className="text-[10px] text-muted-foreground">{progress.label}</p>
+            )}
         </div>
 
         {p.screeningComplete && (
@@ -354,6 +351,113 @@ function Stat({
       <span className="font-medium text-foreground">{value}</span>
       <span>{label}</span>
     </div>
+  );
+}
+
+type StatusKey =
+  | "draft"
+  | "inputting"
+  | "review_pending"
+  | "in_review"
+  | "ready_to_finalize"
+  | "finalized";
+
+type StatusInfo = {
+  key: StatusKey;
+  /** Short label shown on the badge */
+  label: string;
+  /** Longer phrase shown under the progress bar */
+  detail: string;
+  tone: "default" | "secondary" | "outline" | "success" | "warn";
+};
+
+function computeStatus(p: ProjectData, isConsultant: boolean): StatusInfo {
+  if (p.finalizedAt) {
+    return {
+      key: "finalized",
+      label: "확정",
+      detail: "리포트가 확정되었습니다.",
+      tone: "success",
+    };
+  }
+  if (!p.screeningComplete) {
+    return {
+      key: "draft",
+      label: "초안",
+      detail: "스크리닝을 먼저 진행해 주세요.",
+      tone: "outline",
+    };
+  }
+
+  const hasDT = p._count.dtAnswers > 0;
+  const hasEvidence = p._count.dtEvidences > 0;
+  const hasAssessment = p._count.dtAssessments > 0;
+
+  // Customer-side work appears done → consultant's turn.
+  if (hasDT && hasEvidence && !hasAssessment) {
+    return {
+      key: "review_pending",
+      label: isConsultant ? "검토 필요" : "컨설턴트 검토 대기",
+      detail: isConsultant
+        ? "고객 입력이 완료되었습니다. 기능 평가를 시작하세요."
+        : "컨설턴트 검토를 기다리고 있습니다.",
+      tone: "warn",
+    };
+  }
+
+  // Consultant is assessing
+  if (hasAssessment) {
+    return {
+      key: "in_review",
+      label: isConsultant ? "평가 진행 중" : "컨설턴트 평가 중",
+      detail: isConsultant
+        ? "평가를 진행한 후 리포트를 확정하세요."
+        : "컨설턴트가 기능 평가를 진행 중입니다.",
+      tone: "secondary",
+    };
+  }
+
+  // Still in customer input phase
+  return {
+    key: "inputting",
+    label: "입력 진행 중",
+    detail:
+      !hasDT
+        ? "Decision Tree 평가를 진행해 주세요."
+        : "증빙 정보를 입력해 주세요.",
+    tone: "secondary",
+  };
+}
+
+function StatusBadge({ status }: { status: StatusInfo }) {
+  const { tone, label, key } = status;
+  if (tone === "success")
+    return (
+      <Badge className="shrink-0 bg-emerald-600 text-white hover:bg-emerald-600">
+        <Lock className="mr-1 size-3" />
+        {label}
+      </Badge>
+    );
+  if (tone === "warn")
+    return (
+      <Badge
+        variant="secondary"
+        className="shrink-0 bg-amber-500/15 text-amber-700 hover:bg-amber-500/20 dark:text-amber-400"
+      >
+        {key === "review_pending" && "● "}
+        {label}
+      </Badge>
+    );
+  if (tone === "outline")
+    return (
+      <Badge variant="outline" className="shrink-0">
+        {label}
+      </Badge>
+    );
+  return (
+    <Badge variant="secondary" className="shrink-0">
+      {label}
+    </Badge>
   );
 }
 

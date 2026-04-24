@@ -315,6 +315,13 @@ function AssetEvaluationCard({
     [requirement, answers],
   );
 
+  // When the requirement has its own structured evidence schema, the DT form
+  // should NOT collect per-step "evidence/notes" — those details are captured
+  // in the dedicated Evidence page. Showing them here creates duplicate fields.
+  const hasStructuredEvidence =
+    Array.isArray(requirement.evidenceFields) &&
+    requirement.evidenceFields.length > 0;
+
   function onAnswer(nodeId: string, value: "yes" | "no") {
     // Optimistic update
     setAnswers((prev) => ({
@@ -475,6 +482,7 @@ function AssetEvaluationCard({
               onCommitNotes={() => onCommitNotes(step.nodeId)}
               onChange={() => onChangePriorAnswer(step)}
               disabled={pending}
+              hasStructuredEvidence={hasStructuredEvidence}
             />
           );
         })}
@@ -482,10 +490,9 @@ function AssetEvaluationCard({
         {walk.kind === "question" ? (
           <ActiveQuestion
             node={requirement.nodes[walk.nodeId]}
-            notes={notes[`${aKey(assetId)}::${walk.nodeId}`] ?? ""}
-            onNotes={(v) => onSaveNotes(walk.nodeId, v)}
             onAnswer={(a) => onAnswer(walk.nodeId, a)}
             disabled={pending}
+            hasStructuredEvidence={hasStructuredEvidence}
           />
         ) : (
           <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
@@ -514,6 +521,7 @@ function AnsweredStep({
   onCommitNotes,
   onChange,
   disabled,
+  hasStructuredEvidence,
 }: {
   node: DTNode;
   answer: "yes" | "no";
@@ -522,6 +530,7 @@ function AnsweredStep({
   onCommitNotes: () => void;
   onChange: () => void;
   disabled?: boolean;
+  hasStructuredEvidence?: boolean;
 }) {
   return (
     <div className="rounded-lg border bg-muted/30 p-3">
@@ -548,7 +557,7 @@ function AnsweredStep({
           {answer === "yes" ? "Yes" : "No"}
         </Badge>
       </div>
-      {answer === "yes" ? (
+      {answer === "yes" && !hasStructuredEvidence ? (
         <div className="mt-2 space-y-1 pl-8">
           <p className="text-[11px] font-medium text-foreground">
             증빙·근거:{" "}
@@ -598,16 +607,14 @@ function AnsweredStep({
 
 function ActiveQuestion({
   node,
-  notes,
-  onNotes,
   onAnswer,
   disabled,
+  hasStructuredEvidence,
 }: {
   node: DTNode;
-  notes: string;
-  onNotes: (v: string) => void;
   onAnswer: (a: "yes" | "no") => void;
   disabled?: boolean;
+  hasStructuredEvidence?: boolean;
 }) {
   return (
     <div className="rounded-lg border-2 border-primary/30 bg-primary/5 p-4">
@@ -655,9 +662,16 @@ function ActiveQuestion({
           <X className="mr-1 size-4" />
           No
         </Button>
-        <p className="flex-1 text-[11px] text-muted-foreground">
-          Yes 답변 시 해당 단계의 증빙·근거 입력란이 나타납니다.
-        </p>
+        {!hasStructuredEvidence && (
+          <p className="flex-1 text-[11px] text-muted-foreground">
+            Yes 답변 시 해당 단계의 증빙·근거 입력란이 나타납니다.
+          </p>
+        )}
+        {hasStructuredEvidence && (
+          <p className="flex-1 text-[11px] text-muted-foreground">
+            상세 증빙은 「증빙 정보 입력」 페이지에서 수집합니다.
+          </p>
+        )}
       </div>
     </div>
   );

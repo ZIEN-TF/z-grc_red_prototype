@@ -281,10 +281,10 @@ export default async function DTOverviewPage({
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <div>
-        <Link href={`/projects/${project.id}/mechanisms/review`}>
+        <Link href={`/projects/${project.id}/assets/review`}>
           <Button variant="ghost" size="sm" className="-ml-3">
             <ArrowLeft className="mr-1 size-4" />
-            메커니즘 검토 / Mechanism Review
+            자산 검토 / Assets Review
           </Button>
         </Link>
         <h1 className="mt-2 text-2xl font-bold tracking-tight">
@@ -537,10 +537,10 @@ export default async function DTOverviewPage({
       )}
 
       <div className="flex items-center justify-between gap-4 py-4">
-        <Link href={`/projects/${project.id}/mechanisms/review`}>
+        <Link href={`/projects/${project.id}/assets/review`}>
           <Button variant="outline">
             <ArrowLeft className="mr-2 size-4" />
-            메커니즘 검토로 / Back
+            자산 검토로 / Back
           </Button>
         </Link>
         <Link href={`/projects/${project.id}/evidence?standard=${selectedStandard}`}>

@@ -500,17 +500,33 @@ function SummaryTab({
       </Card>
 
       {applicable.some((s) => sections[s].incomplete.length > 0) && (
-        <Card className="border-amber-500/40 bg-amber-50/40 dark:bg-amber-950/20">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base text-amber-800 dark:text-amber-300">
+        <details className="group rounded-lg border border-amber-500/40 bg-amber-50/40 dark:bg-amber-950/20">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-4 py-3 hover:bg-amber-50/70 dark:hover:bg-amber-950/30">
+            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300">
               <CircleAlert className="size-4" />
-              미완료 항목
-            </CardTitle>
-            <CardDescription className="text-xs">
+              <span className="text-base font-semibold">미완료 항목</span>
+              <Badge
+                variant="outline"
+                className="border-amber-500/50 text-[10px] text-amber-800 dark:text-amber-300"
+              >
+                {applicable.reduce(
+                  (sum, s) => sum + sections[s].incomplete.length,
+                  0,
+                )}
+                건
+              </Badge>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="hidden sm:inline">
+                펼쳐서 확인
+              </span>
+              <span className="inline-block size-1.5 rotate-0 rounded-sm border-b-2 border-r-2 border-amber-700 transition-transform group-open:rotate-45 dark:border-amber-400" />
+            </div>
+          </summary>
+          <div className="space-y-3 border-t border-amber-500/30 p-4">
+            <p className="text-xs text-muted-foreground">
               리포트 확정 전에 확인이 필요한 항목입니다.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
+            </p>
             {applicable.map((s) => {
               const section = sections[s];
               if (section.incomplete.length === 0) return null;
@@ -532,8 +548,8 @@ function SummaryTab({
                 </div>
               );
             })}
-          </CardContent>
-        </Card>
+          </div>
+        </details>
       )}
     </div>
   );

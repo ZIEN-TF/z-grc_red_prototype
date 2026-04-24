@@ -27,15 +27,25 @@ export default async function LoginPage({
         </p>
       </div>
       <LoginForm next={next} />
-      <p className="text-center text-sm text-muted-foreground">
-        계정이 없으신가요?{" "}
-        <Link
-          href={`/signup${next ? `?next=${encodeURIComponent(next)}` : ""}`}
-          className="text-primary hover:underline"
-        >
-          회원가입
-        </Link>
-      </p>
+      <div className="space-y-1.5 text-center text-sm text-muted-foreground">
+        <p>
+          계정이 없으신가요?{" "}
+          <Link
+            href={`/signup${next ? `?next=${encodeURIComponent(next)}` : ""}`}
+            className="text-primary hover:underline"
+          >
+            회원가입
+          </Link>
+        </p>
+        <p>
+          <Link
+            href="/forgot-password"
+            className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+          >
+            비밀번호를 잊으셨나요?
+          </Link>
+        </p>
+      </div>
     </div>
   );
 }
