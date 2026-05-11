@@ -2,10 +2,6 @@ import Link from "next/link";
 import {
   ArrowLeft,
   ArrowRight,
-  CheckCircle2,
-  XCircle,
-  MinusCircle,
-  CircleDashed,
   CircleAlert,
 } from "lucide-react";
 import { notFound } from "next/navigation";
@@ -14,15 +10,14 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { MECHANISMS, STANDARDS, type StandardId } from "@/lib/mechanisms";
 import { LockedBanner } from "../locked-banner";
+import { AIFillDTAllButton } from "./ai-fill-dt-all-button";
+import { DTScrollRestorer } from "./dt-scroll-restorer";
 import {
   DT_REQUIREMENTS,
   evaluateRequirementApplicability,
@@ -31,6 +26,11 @@ import {
   matchAssetsForRequirement,
   walkTree,
 } from "@/lib/decision-trees";
+import {
+  DTOverviewClient,
+  type SerializedMechGroup,
+  type SerializedReqRow,
+} from "./dt-overview-client";
 
 export default async function DTOverviewPage({
   params,
@@ -44,7 +44,12 @@ export default async function DTOverviewPage({
 
   const project = await prisma.project.findUnique({
     where: { id },
-    include: { assets: true, dtAnswers: true, screeningAnswers: true },
+    include: {
+      assets: true,
+      dtAnswers: { select: { id: true, assetId: true, requirementId: true, nodeId: true, answer: true, notes: true, userReviewed: true } },
+      screeningAnswers: true,
+      attachments: { select: { id: true } },
+    },
   });
   if (!project) notFound();
 
@@ -278,8 +283,11 @@ export default async function DTOverviewPage({
   }, 0);
   const pct = totalExpected === 0 ? 0 : Math.round((totalDone / totalExpected) * 100);
 
+  const reviewedDTCount = project.dtAnswers.some((a) => a.userReviewed);
+
   return (
     <div className="mx-auto max-w-5xl space-y-6">
+      <DTScrollRestorer projectId={project.id} />
       <div>
         <Link href={`/projects/${project.id}/assets/review`}>
           <Button variant="ghost" size="sm" className="-ml-3">
@@ -287,17 +295,27 @@ export default async function DTOverviewPage({
             자산 검토 / Assets Review
           </Button>
         </Link>
-        <h1 className="mt-2 text-2xl font-bold tracking-tight">
-          Decision Tree 평가
-          <span className="ml-2 text-base font-medium text-muted-foreground">
-            / Decision Tree Evaluation
-          </span>
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          제품: <span className="font-medium text-foreground">{project.name}</span>
-          {" · "}
-          {project.manufacturer}
-        </p>
+        <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">
+              Decision Tree 평가
+              <span className="ml-2 text-base font-medium text-muted-foreground">
+                / Decision Tree Evaluation
+              </span>
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              제품: <span className="font-medium text-foreground">{project.name}</span>
+              {" · "}
+              {project.manufacturer}
+            </p>
+          </div>
+          <AIFillDTAllButton
+            projectId={project.id}
+            hasAttachments={project.attachments.length > 0}
+            hasReviewedAnswers={reviewedDTCount}
+            disabled={project.finalizedAt !== null}
+          />
+        </div>
       </div>
 
       <LockedBanner
@@ -367,7 +385,7 @@ export default async function DTOverviewPage({
         </CardContent>
       </Card>
 
-      {/* Requirements grouped by mechanism */}
+      {/* Requirements grouped by mechanism — client component handles filter + collapse */}
       {byMechanism.size === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
@@ -377,163 +395,30 @@ export default async function DTOverviewPage({
           </CardContent>
         </Card>
       ) : (
-        Array.from(byMechanism.entries()).map(([code, reqs]) => {
-          const mech = MECHANISMS.find((m) => m.code === code);
-          return (
-            <Card key={code}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <span className="rounded bg-primary/10 px-2 py-0.5 font-mono text-xs text-primary">
-                    {code}
-                  </span>
-                  <span>{mech?.name_ko ?? code}</span>
-                  <span className="text-sm font-normal text-muted-foreground">
-                    / {mech?.name_en ?? code}
-                  </span>
-                </CardTitle>
-                {mech && (
-                  <CardDescription>{mech.description_ko}</CardDescription>
-                )}
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {reqs.map((req) => {
-                  const status = reqStatuses.find((s) => s.req.id === req.id)!;
-                  const doneAll =
-                    status.totals.total > 0 && status.totals.pending === 0;
-                  return (
-                    <Link
-                      key={req.id}
-                      href={`/projects/${project.id}/dt/${req.id}?standard=${selectedStandard}`}
-                      className="block rounded-lg border p-4 transition hover:border-primary/50 hover:bg-accent/30"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="rounded bg-muted px-2 py-0.5 font-mono text-xs">
-                              {req.id}
-                            </span>
-                            <span className="text-sm font-medium">
-                              {req.title_ko}
-                            </span>
-                          </div>
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            {req.title_en}
-                          </p>
-                          {req.iterateOver && (
-                            <p className="mt-1 text-[11px] text-muted-foreground">
-                              <span className="mr-1 font-medium">반복 단위:</span>
-                              {req.iterateOver.description_ko}
-                            </p>
-                          )}
-                          {!req.iterateOver && (
-                            <p className="mt-1 text-[11px] text-muted-foreground">
-                              <span className="mr-1 font-medium">평가 단위:</span>
-                              기기 전체 (1회 평가)
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex flex-col items-end gap-1">
-                          <div className="flex items-center gap-1">
-                            {"naFromScreening" in status && status.naFromScreening && (
-                              <Badge variant="secondary">
-                                <MinusCircle className="mr-1 size-3" />
-                                NOT APPLICABLE
-                              </Badge>
-                            )}
-                            {!("naFromScreening" in status && status.naFromScreening) &&
-                              status.totals.total === 0 &&
-                              req.iterateOver && (
-                                <Badge variant="secondary">
-                                  <MinusCircle className="mr-1 size-3" />
-                                  NOT APPLICABLE
-                                </Badge>
-                              )}
-                            {status.totals.pass > 0 && (
-                              <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">
-                                <CheckCircle2 className="mr-1 size-3" />
-                                PASS {status.totals.pass}
-                              </Badge>
-                            )}
-                            {status.totals.fail > 0 && (
-                              <Badge variant="destructive">
-                                <XCircle className="mr-1 size-3" />
-                                FAIL {status.totals.fail}
-                              </Badge>
-                            )}
-                            {!("naFromScreening" in status && status.naFromScreening) &&
-                              status.totals.na > 0 && (
-                                <Badge variant="secondary">
-                                  <MinusCircle className="mr-1 size-3" />
-                                  N/A {status.totals.na}
-                                </Badge>
-                              )}
-                            {status.totals.pending > 0 && (
-                              <Badge variant="outline">
-                                <CircleDashed className="mr-1 size-3" />
-                                {status.totals.pending}
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1 text-right text-xs text-muted-foreground">
-                            {"naFromScreening" in status && status.naFromScreening ? (
-                              <span className="max-w-xs font-medium">
-                                {status.failedCondition?.reason_ko ??
-                                  `스크리닝 ${status.failedCondition?.questionId}의 답변에 따라 해당 없음`}
-                              </span>
-                            ) : status.totals.total === 0 && req.iterateOver ? (
-                              <span className="font-medium">
-                                이 제품·메커니즘 구성에는 해당되지 않습니다
-                              </span>
-                            ) : doneAll ? (
-                              <span className="font-medium text-primary">
-                                완료 / Done
-                              </span>
-                            ) : (
-                              <span>이어하기 / Continue →</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </Link>
-                  );
-                })}
-              </CardContent>
-            </Card>
-          );
-        })
-      )}
-
-      {/* Mechanisms from screening without DTs for this standard */}
-      {mechanismsWithoutDTs.length > 0 && (
-        <Card className="border-dashed">
-          <CardHeader>
-            <CardTitle className="text-base">
-              EN 18031-{selectedStandard} Decision Tree 준비 중 / Pending
-            </CardTitle>
-            <CardDescription>
-              다음 메커니즘은 스크리닝 결과 해당되며 본 표준 범위이지만, DT가 아직 추가되지 않았습니다.
-              <br />
-              Mechanisms flagged by screening and in scope of this standard, but whose DTs are not yet ingested.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-1">
-              {mechanismsWithoutDTs.map((code) => {
-                const m = MECHANISMS.find((x) => x.code === code);
-                return (
-                  <Badge key={code} variant="outline" className="font-mono">
-                    {code}
-                    {m && (
-                      <span className="ml-1 font-sans font-normal text-muted-foreground">
-                        · {m.name_ko}
-                      </span>
-                    )}
-                  </Badge>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
+        <DTOverviewClient
+          groups={Array.from(byMechanism.entries()).map(([code, reqs]) => ({
+            code,
+            reqs: reqs.map((req) => {
+              const status = reqStatuses.find((s) => s.req.id === req.id)!;
+              return {
+                id: req.id,
+                title_ko: req.title_ko,
+                title_en: req.title_en,
+                iterateDescription_ko: req.iterateOver?.description_ko ?? undefined,
+                isGlobal: !req.iterateOver,
+                totals: status.totals,
+                naFromScreening: "naFromScreening" in status && !!status.naFromScreening,
+                failedConditionReason_ko:
+                  "failedCondition" in status
+                    ? ((status as { failedCondition?: { reason_ko?: string } }).failedCondition?.reason_ko ?? undefined)
+                    : undefined,
+              } satisfies SerializedReqRow;
+            }),
+          }))}
+          projectId={project.id}
+          selectedStandard={selectedStandard}
+          mechanismsWithoutDTs={mechanismsWithoutDTs}
+        />
       )}
 
       <div className="flex items-center justify-between gap-4 py-4">

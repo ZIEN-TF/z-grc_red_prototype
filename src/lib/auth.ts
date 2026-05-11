@@ -6,7 +6,6 @@ import bcrypt from "bcryptjs";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { cache } from "react";
-import { prisma } from "@/lib/prisma";
 
 export type Role = "customer" | "consultant";
 
@@ -119,6 +118,7 @@ export async function requireProjectAccess(
 ): Promise<Session> {
   const s = await requireSession();
   if (s.role === "consultant") return s;
+  const { prisma } = await import("@/lib/prisma");
   const p = await prisma.project.findUnique({
     where: { id: projectId },
     select: { userId: true },

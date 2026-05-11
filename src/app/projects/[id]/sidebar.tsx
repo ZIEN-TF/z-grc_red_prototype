@@ -15,6 +15,7 @@ import {
   Microscope,
   Paperclip,
   FileBarChart,
+  LayoutDashboard,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +33,13 @@ type Step = {
 };
 
 const STEPS: Step[] = [
+  {
+    id: "overview",
+    label_ko: "개요",
+    label_en: "Overview",
+    path: "",
+    icon: LayoutDashboard,
+  },
   {
     id: "attachments",
     label_ko: "첨부 파일",
@@ -152,13 +160,16 @@ export function ProjectSidebar({
             const fullPath = basePath + step.path;
             // Active: exact match OR any deeper path under this step, but the
             // sub-review paths should not also highlight their parent.
+            // Empty path (overview) only matches exact.
             const isReview = step.path.endsWith("/review");
-            const active = isReview
-              ? pathname === fullPath
-              : pathname === fullPath ||
-                (pathname.startsWith(fullPath + "/") &&
-                  // exclude /review from highlighting the parent
-                  !pathname.startsWith(fullPath + "/review"));
+            const active =
+              step.path === ""
+                ? pathname === fullPath
+                : isReview
+                  ? pathname === fullPath
+                  : pathname === fullPath ||
+                    (pathname.startsWith(fullPath + "/") &&
+                      !pathname.startsWith(fullPath + "/review"));
             const Icon = step.icon;
             const complete =
               step.completeWhen !== undefined && project[step.completeWhen];

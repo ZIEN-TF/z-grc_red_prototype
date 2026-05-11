@@ -42,6 +42,7 @@ model Project {
   contactEmail       String?
   productType        String?
   productDescription String?
+  standard           String? // "RED" | "FDA"
 
   // Owner (customer who created it). Null for legacy projects — visible to
   // consultants but not to any customer.
@@ -72,6 +73,21 @@ model Project {
   dtEvidences      DTEvidence[]
   dtAssessments    DTAssessment[]
   attachments      ProjectAttachment[]
+  shareTokens      ShareToken[]
+}
+
+// Read-only share links — any holder of the URL can view the project in read-only mode.
+model ShareToken {
+  id        String    @id @default(cuid())
+  projectId String
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  token     String    @unique // random 32-char hex
+  label     String    @default("")
+  createdBy String? // userId of creator
+  createdAt DateTime  @default(now())
+  expiresAt DateTime?
+
+  @@index([projectId])
 }
 
 model ScreeningAnswer {
@@ -81,6 +97,11 @@ model ScreeningAnswer {
   answer     String // "yes" | "no"
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+
+  aiGenerated    Boolean   @default(false)
+  aiGeneratedAt  DateTime?
+  userReviewed   Boolean   @default(false)
+  userReviewedAt DateTime?
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
@@ -94,6 +115,11 @@ model Asset {
   name        String
   description String?
   metadata    String  @default("{}") // JSON
+
+  aiGenerated    Boolean   @default(false)
+  aiGeneratedAt  DateTime?
+  userReviewed   Boolean   @default(false)
+  userReviewedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -114,6 +140,11 @@ model DTAnswer {
   answer        String // "yes" | "no"
   notes         String?
 
+  aiGenerated    Boolean   @default(false)
+  aiGeneratedAt  DateTime?
+  userReviewed   Boolean   @default(false)
+  userReviewedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -133,6 +164,16 @@ model DTEvidence {
   requirementId String // e.g. "P1.ACM-1"
   fieldId       String // e.g. "E.Info.ACM-1.SecurityAsset.Access"
   value         String  @default("")
+
+  attachmentFilename   String?
+  attachmentStoredPath String?
+  attachmentMimeType   String?
+  attachmentSize       Int?
+
+  aiGenerated    Boolean   @default(false)
+  aiGeneratedAt  DateTime?
+  userReviewed   Boolean   @default(false)
+  userReviewedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -162,6 +203,11 @@ model DTAssessment {
   attachmentStoredPath String?
   attachmentMimeType   String?
   attachmentSize       Int?
+
+  aiGenerated    Boolean   @default(false)
+  aiGeneratedAt  DateTime?
+  userReviewed   Boolean   @default(false)
+  userReviewedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

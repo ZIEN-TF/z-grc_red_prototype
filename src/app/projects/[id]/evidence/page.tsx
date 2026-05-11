@@ -38,6 +38,7 @@ import { StructuredEvidenceForm } from "./structured-evidence-form";
 import { EvidenceForm } from "./evidence-form";
 import { LockedBanner } from "../locked-banner";
 import { requireSession } from "@/lib/auth";
+import { AIFillEvidenceButton } from "./ai-fill-evidence-button";
 
 export default async function EvidencePage({
   params,
@@ -56,8 +57,9 @@ export default async function EvidencePage({
     include: {
       assets: true,
       dtAnswers: true,
-      dtEvidences: true,
+      dtEvidences: { select: { id: true, assetId: true, requirementId: true, fieldId: true, value: true, userReviewed: true } },
       screeningAnswers: true,
+      attachments: { select: { id: true } },
     },
   });
   if (!project) notFound();
@@ -313,6 +315,15 @@ export default async function EvidencePage({
         finalizedAt={project.finalizedAt}
         finalizedBy={project.finalizedBy}
       />
+
+      <div className="flex justify-end">
+        <AIFillEvidenceButton
+          projectId={project.id}
+          hasAttachments={project.attachments.length > 0}
+          hasReviewedFields={project.dtEvidences.some((e) => e.userReviewed)}
+          disabled={project.finalizedAt !== null}
+        />
+      </div>
 
       {applicableStandards.length > 1 && (
         <div className="flex flex-wrap gap-1 border-b">

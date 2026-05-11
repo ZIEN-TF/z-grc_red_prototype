@@ -14,6 +14,11 @@ function createClient() {
   return new PrismaClient({ adapter });
 }
 
-export const prisma = globalForPrisma.prisma ?? createClient();
-
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+// In production: singleton to avoid connection pool exhaustion.
+// In dev: always create a fresh client so that `prisma generate` changes
+// (new models/fields) are immediately picked up after hot-reload — the old
+// singleton would keep the stale schema in memory and throw PrismaClientValidationErrors.
+export const prisma =
+  process.env.NODE_ENV === "production"
+    ? (globalForPrisma.prisma ?? (globalForPrisma.prisma = createClient()))
+    : createClient();

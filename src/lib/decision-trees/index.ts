@@ -5,6 +5,7 @@ import type { DTRequirement } from "./types";
 
 export * from "./types";
 export { assessmentsFor, ASSESSMENTS_MAP } from "./assessments-map";
+export { evidenceExampleFor } from "./evidence-examples";
 
 export const DT_REQUIREMENTS: DTRequirement[] = [
   ...P1_REQUIREMENTS,

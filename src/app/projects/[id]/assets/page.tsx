@@ -19,6 +19,7 @@ import type { StandardId } from "@/lib/mechanisms";
 import { AssetSection } from "./asset-section";
 import { CSVImportDialog } from "./csv-import-dialog";
 import { LockedBanner } from "../locked-banner";
+import { AIFillAssetsButton } from "./ai-fill-assets-button";
 
 export default async function AssetsPage({
   params,
@@ -28,7 +29,10 @@ export default async function AssetsPage({
   const { id } = await params;
   const project = await prisma.project.findUnique({
     where: { id },
-    include: { assets: { orderBy: { createdAt: "asc" } } },
+    include: {
+      assets: { orderBy: { createdAt: "asc" } },
+      attachments: { select: { id: true } },
+    },
   });
   if (!project) notFound();
 
@@ -75,6 +79,12 @@ export default async function AssetsPage({
       />
 
       <div className="flex flex-wrap items-center justify-end gap-2">
+        <AIFillAssetsButton
+          projectId={project.id}
+          hasAttachments={project.attachments.length > 0}
+          hasExisting={project.assets.length > 0}
+          disabled={project.finalizedAt !== null}
+        />
         <CSVImportDialog
           projectId={project.id}
           disabled={project.finalizedAt !== null}

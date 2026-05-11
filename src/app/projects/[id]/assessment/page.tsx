@@ -34,6 +34,7 @@ import {
 } from "@/lib/decision-trees";
 import { AssessmentForm } from "./assessment-form";
 import { LockedBanner } from "../locked-banner";
+import { AIFillAssessmentButton } from "./ai-fill-assessment-button";
 
 type IterationBlock = {
   assetId: string | null;
@@ -77,6 +78,7 @@ export default async function AssessmentPage({
       dtAnswers: true,
       dtAssessments: true,
       screeningAnswers: true,
+      attachments: { select: { id: true } },
     },
   });
   if (!project) notFound();
@@ -300,6 +302,15 @@ export default async function AssessmentPage({
         finalizedAt={project.finalizedAt}
         finalizedBy={project.finalizedBy}
       />
+
+      <div className="flex justify-end">
+        <AIFillAssessmentButton
+          projectId={project.id}
+          hasAttachments={project.attachments.length > 0}
+          hasReviewedFields={project.dtAssessments.some((a) => a.userReviewed)}
+          disabled={project.finalizedAt !== null}
+        />
+      </div>
 
       {applicableStandards.length > 1 && (
         <div className="flex flex-wrap gap-1 border-b">

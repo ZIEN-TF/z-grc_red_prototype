@@ -793,6 +793,34 @@ export async function importAssetsFromCSV(input: {
   return { created, errors };
 }
 
+// ── Share tokens ────────────────────────────────────────────────────────────
+
+export async function createShareToken(projectId: string): Promise<string> {
+  const session = await requireProjectAccess(projectId);
+  const token = crypto.randomBytes(16).toString("hex"); // 32-char hex
+  await prisma.shareToken.create({
+    data: {
+      projectId,
+      token,
+      createdBy: session.userId,
+    },
+  });
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath(`/projects/${projectId}/share`);
+  return token;
+}
+
+export async function revokeShareToken(input: {
+  tokenId: string;
+  projectId: string;
+}): Promise<void> {
+  await requireProjectAccess(input.projectId);
+  await prisma.shareToken.deleteMany({
+    where: { id: input.tokenId, projectId: input.projectId },
+  });
+  revalidatePath(`/projects/${input.projectId}/share`);
+}
+
 // ── Screening reset (unlock DT by clearing screening so user can re-enter) ──
 export async function resetScreeningAndDependents(projectId: string) {
   await assertProjectEditable(projectId);
