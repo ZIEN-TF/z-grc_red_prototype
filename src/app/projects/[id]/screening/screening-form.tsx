@@ -1,9 +1,11 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Check, X, Info } from "lucide-react";
+import { Check, X, Info, Sparkles, Loader2 } from "lucide-react";
 import { saveScreening } from "@/app/actions";
+import { aiFillScreening } from "@/app/ai-actions";
 import {
   type ScreeningQuestion,
   type ScreeningAnswerMap,
@@ -45,8 +47,11 @@ export function ScreeningForm({
   initialAnswers: ScreeningAnswerMap;
   readOnly?: boolean;
 }) {
+  const router = useRouter();
   const [answers, setAnswers] = useState<ScreeningAnswerMap>(initialAnswers);
   const [pending, startTransition] = useTransition();
+  const [aiPending, startAiTransition] = useTransition();
+  const [aiFilledIds, setAiFilledIds] = useState<Set<string>>(new Set());
 
   const grouped = useMemo(() => {
     const a = questions.filter((q) => q.section === "A");
@@ -57,6 +62,31 @@ export function ScreeningForm({
   const answeredCount = Object.keys(answers).length;
   const total = questions.length;
   const percent = Math.round((answeredCount / total) * 100);
+
+  function onAiFill() {
+    startAiTransition(async () => {
+      try {
+        const result = await aiFillScreening(projectId);
+        const newIds = new Set<string>();
+        setAnswers((prev) => {
+          const next = { ...prev };
+          for (const a of result.answers) {
+            if (a.answer === "yes" || a.answer === "no") {
+              if (!prev[a.questionId]) newIds.add(a.questionId);
+              next[a.questionId] = a.answer as "yes" | "no";
+            }
+          }
+          return next;
+        });
+        setAiFilledIds(newIds);
+        toast.success(`AI가 ${result.filled}개 항목을 채웠습니다. 내용을 검수해 주세요.`);
+        router.refresh();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "AI 호출 실패";
+        toast.error(msg);
+      }
+    });
+  }
 
   function setAnswer(id: string, value: "yes" | "no") {
     setAnswers((prev) => ({ ...prev, [id]: value }));
@@ -87,7 +117,26 @@ export function ScreeningForm({
               {answeredCount} / {total}
             </span>
           </span>
-          <span className="font-medium">{percent}%</span>
+          <div className="flex items-center gap-2">
+            <span className="font-medium">{percent}%</span>
+            {!readOnly && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={onAiFill}
+                disabled={aiPending || pending}
+                className="h-7 px-2 text-xs"
+              >
+                {aiPending ? (
+                  <Loader2 className="mr-1 size-3 animate-spin" />
+                ) : (
+                  <Sparkles className="mr-1 size-3" />
+                )}
+                AI 자동 채우기
+              </Button>
+            )}
+          </div>
         </div>
         <Progress value={percent} className="mt-2" />
       </div>
@@ -118,6 +167,7 @@ export function ScreeningForm({
                 question={q}
                 value={answers[q.id]}
                 onChange={(v) => setAnswer(q.id, v)}
+                aiGenerated={aiFilledIds.has(q.id)}
               />
             ))}
           </CardContent>
@@ -147,21 +197,28 @@ function QuestionRow({
   question,
   value,
   onChange,
+  aiGenerated,
 }: {
   index: number;
   question: ScreeningQuestion;
   value?: "yes" | "no";
   onChange: (v: "yes" | "no") => void;
+  aiGenerated?: boolean;
 }) {
   return (
-    <div className="rounded-lg border p-4">
+    <div className={cn("rounded-lg border p-4", aiGenerated && "border-primary/40 bg-primary/5")}>
       <div className="flex items-start gap-3">
         <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted font-mono text-xs text-muted-foreground">
           {question.id}
         </div>
         <div className="flex-1 space-y-1">
-          <p className="text-sm font-medium leading-snug">
+          <p className="flex items-center gap-2 text-sm font-medium leading-snug">
             {index}. {question.text_ko}
+            {aiGenerated && (
+              <span className="inline-flex items-center gap-0.5 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-normal text-primary">
+                <Sparkles className="size-2.5" /> AI
+              </span>
+            )}
           </p>
           <p className="text-xs leading-snug text-muted-foreground">
             {question.text_en}

@@ -170,7 +170,8 @@ export default async function ResultPage({
                         const belongs = m.standards.includes(s as StandardId);
                         const applies =
                           belongs &&
-                          applicableStandards.includes(s as StandardId);
+                          applicableStandards.includes(s as StandardId) &&
+                          isCandidate;
                         return (
                           <TableCell key={s} className="text-center">
                             {applies ? (

@@ -27,6 +27,8 @@ import { MinusCircle } from "lucide-react";
 import { RequirementEvaluator } from "./requirement-evaluator";
 import { AcmInstancePanel } from "./acm-instance-panel";
 import { SumInstancePanel } from "./sum-instance-panel";
+import { AuthenticatorInstancePanel } from "./authenticator-instance-panel";
+import type { AuthType, PasswordSubtype } from "@/app/actions";
 
 export default async function RequirementPage({
   params,
@@ -288,6 +290,18 @@ export default async function RequirementPage({
               initial={await loadSumInstances(project.id)}
             />
           )}
+          {isAum2RequirementId(req.id) && (
+            <AuthenticatorInstancePanel
+              projectId={project.id}
+              readOnly={project.finalizedAt !== null}
+              acms={buildAcmsWithAum2Pass(
+                await loadAcmInstances(project.id),
+                req,
+                project.dtAnswers,
+              )}
+              initial={await loadAuthenticatorInstances(project.id)}
+            />
+          )}
         </>
       )}
 
@@ -305,6 +319,10 @@ export default async function RequirementPage({
 
 function isAcm2RequirementId(id: string): boolean {
   return id === "P1.ACM-2" || id === "P2.ACM-2" || id === "P3.ACM-2";
+}
+
+function isAum2RequirementId(id: string): boolean {
+  return id === "P1.AUM-2" || id === "P2.AUM-2" || id === "P3.AUM-2";
 }
 
 function isSum1RequirementId(id: string): boolean {
@@ -378,6 +396,62 @@ async function loadAcmInstances(projectId: string) {
       interfaceUser: meta.interface_user === "yes",
       interfaceMachine: meta.interface_machine === "yes",
       passwordType,
+    };
+  });
+}
+
+async function loadAuthenticatorInstances(projectId: string) {
+  const rows = await prisma.asset.findMany({
+    where: { projectId, kind: "authenticator_instance" },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, name: true, metadata: true },
+  });
+  return rows.map((r) => {
+    let meta: Record<string, string> = {};
+    try {
+      const parsed = JSON.parse(r.metadata);
+      if (parsed && typeof parsed === "object") meta = parsed as Record<string, string>;
+    } catch {}
+    const at = meta.authType;
+    const authType: AuthType =
+      at === "password" || at === "pin" || at === "biometric" ||
+      at === "certificate" || at === "network_trust" || at === "other"
+        ? at : "";
+    const ps = meta.passwordSubtype;
+    const passwordSubtype: PasswordSubtype =
+      ps === "factory_default" || ps === "user_set" ||
+      ps === "third_party" || ps === "none"
+        ? ps : "";
+    return {
+      id: r.id,
+      name: r.name,
+      acmId: meta.acmId ?? "",
+      authType,
+      passwordSubtype,
+    };
+  });
+}
+
+function buildAcmsWithAum2Pass(
+  acmInstances: Awaited<ReturnType<typeof loadAcmInstances>>,
+  req: Parameters<typeof walkTree>[0],
+  dtAnswers: Array<{ requirementId: string; assetId: string | null; nodeId: string; answer: string }>,
+) {
+  return acmInstances.map((acm) => {
+    const assetAnswers: Record<string, "yes" | "no"> = {};
+    for (const d of dtAnswers) {
+      if (d.assetId === acm.id && (d.answer === "yes" || d.answer === "no")) {
+        assetAnswers[d.nodeId] = d.answer;
+      }
+    }
+    if (Object.keys(assetAnswers).length === 0) {
+      return { id: acm.id, name: acm.name, aum2Pass: false };
+    }
+    const walk = walkTree(req, assetAnswers);
+    return {
+      id: acm.id,
+      name: acm.name,
+      aum2Pass: walk.kind === "outcome" && walk.outcome === "pass",
     };
   });
 }
