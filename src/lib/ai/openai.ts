@@ -34,7 +34,7 @@ export function getOpenAI(): OpenAI {
 }
 
 // Models — switch via env if you want to override per environment.
-export const VISION_MODEL = process.env.OPENAI_VISION_MODEL ?? "gpt-4o";
+export const VISION_MODEL = process.env.OPENAI_VISION_MODEL ?? "gpt-4o-mini";
 export const TEXT_MODEL = process.env.OPENAI_TEXT_MODEL ?? "gpt-4o-mini";
 
 export type AttachmentInput =
