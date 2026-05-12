@@ -123,6 +123,18 @@ export function ScreeningForm({
           </span>
           <div className="flex items-center gap-2">
             <span className="font-medium">{percent}%</span>
+            {!readOnly && aiFilledIds.size > 0 && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setAiFilledIds(new Set())}
+                className="h-7 px-2 text-xs text-primary border-primary/40"
+              >
+                <Sparkles className="mr-1 size-3" />
+                전체 검수 완료 ({aiFilledIds.size})
+              </Button>
+            )}
             {!readOnly && (
               <Button
                 type="button"
