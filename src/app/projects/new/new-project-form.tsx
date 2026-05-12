@@ -30,18 +30,38 @@ const PRODUCT_TYPE_SUGGESTIONS = [
 const ATTACHMENT_ACCEPT =
   ".pdf,.png,.jpg,.jpeg,.svg,.docx,.xlsx,.doc,.xls,application/pdf,image/png,image/jpeg,image/svg+xml,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/msword,application/vnd.ms-excel";
 
+const REQUIRED_ATTACHMENTS = [
+  {
+    label: "사용자 매뉴얼 / User Manual",
+    description: "사용자 매뉴얼",
+    errorMsg: "사용자 매뉴얼 파일을 첨부해주세요. / User Manual is required.",
+  },
+  {
+    label: "아키텍처 다이어그램 / Architecture & Network Diagram",
+    description: "아키텍처 다이어그램/네트워크 흐름도",
+    errorMsg:
+      "아키텍처 다이어그램 파일을 첨부해주세요. / Architecture Diagram is required.",
+  },
+  {
+    label: "Use Case",
+    description: "Use Case",
+    errorMsg: "Use Case 파일을 첨부해주세요. / Use Case document is required.",
+  },
+] as const;
+
 export function NewProjectForm() {
   const [pending, startTransition] = useTransition();
-  const [slotIds, setSlotIds] = useState<number[]>([0]);
-  const nextIdRef = useRef(1);
+  const [extraSlotIds, setExtraSlotIds] = useState<number[]>([]);
+  const nextIdRef = useRef(0);
   const formRef = useRef<HTMLFormElement>(null);
+  const reqFileRefs = useRef<(HTMLInputElement | null)[]>([null, null, null]);
 
   function addSlot() {
-    setSlotIds((prev) => [...prev, nextIdRef.current++]);
+    setExtraSlotIds((prev) => [...prev, nextIdRef.current++]);
   }
 
   function removeSlot(id: number) {
-    setSlotIds((prev) => (prev.length > 1 ? prev.filter((i) => i !== id) : prev));
+    setExtraSlotIds((prev) => prev.filter((i) => i !== id));
   }
 
   async function onSubmit(formData: FormData) {
@@ -57,12 +77,19 @@ export function NewProjectForm() {
       return;
     }
 
+    for (let i = 0; i < REQUIRED_ATTACHMENTS.length; i++) {
+      const file = reqFileRefs.current[i]?.files?.[0];
+      if (!file || file.size === 0) {
+        toast.error(REQUIRED_ATTACHMENTS[i].errorMsg);
+        return;
+      }
+    }
+
     startTransition(async () => {
       try {
         await createProject(formData);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "저장 실패";
-        // Ignore NEXT_REDIRECT which is how server actions redirect
         if (msg.includes("NEXT_REDIRECT")) return;
         toast.error(msg);
         console.error(err);
@@ -147,29 +174,65 @@ export function NewProjectForm() {
             />
           </Field>
 
+          {/* Required attachments */}
+          <div className="space-y-3 border-t pt-5">
+            <div>
+              <Label className="text-sm font-medium">
+                필수 첨부 파일 / Required Documents
+              </Label>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                아래 3가지 문서는 반드시 첨부해야 합니다. (PDF, DOCX, 이미지 · 최대 50MB)
+              </p>
+            </div>
+
+            {REQUIRED_ATTACHMENTS.map((req, i) => (
+              <div key={req.label} className="rounded-md border bg-muted/20 p-3">
+                <div className="mb-2 flex items-center gap-2">
+                  <Paperclip className="size-3.5 text-muted-foreground" />
+                  <span className="text-[11px] font-medium">
+                    {req.label}
+                    <span className="ml-1 text-destructive">*</span>
+                  </span>
+                </div>
+                <input
+                  type="hidden"
+                  name="descriptions"
+                  value={req.description}
+                />
+                <Input
+                  ref={(el) => { reqFileRefs.current[i] = el; }}
+                  type="file"
+                  name="attachments"
+                  accept={ATTACHMENT_ACCEPT}
+                  disabled={pending}
+                  className="cursor-pointer text-xs file:mr-3 file:cursor-pointer file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-[11px]"
+                />
+              </div>
+            ))}
+          </div>
+
+          {/* Optional extra attachments */}
           <div className="space-y-3 border-t pt-5">
             <div className="flex items-center justify-between">
               <div>
                 <Label className="text-sm font-medium">
-                  첨부 파일 / Attachments
+                  추가 첨부 파일 / Additional Attachments
                   <span className="ml-2 text-xs font-normal text-muted-foreground">
                     (선택 사항)
                   </span>
                 </Label>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  제품 설명서·아키텍처·사양서 등 (PDF, 이미지, DOCX, XLSX · 최대 50MB)
+                  사양서·인증서 등 추가 문서 (PDF, 이미지, DOCX, XLSX · 최대 50MB)
                 </p>
               </div>
             </div>
 
-            {slotIds.map((id, idx) => (
+            {extraSlotIds.map((id, idx) => (
               <AttachmentSlot
                 key={id}
                 index={idx + 1}
                 disabled={pending}
-                onRemove={
-                  slotIds.length > 1 ? () => removeSlot(id) : undefined
-                }
+                onRemove={() => removeSlot(id)}
               />
             ))}
 
@@ -226,7 +289,7 @@ function AttachmentSlot({
         <Input
           name="descriptions"
           disabled={disabled}
-          placeholder="설명 (예: v1.2 사용자 매뉴얼, 시스템 아키텍처 다이어그램 등)"
+          placeholder="설명 (예: v1.2 사양서, 인증서 등)"
           className="text-xs"
         />
       </div>
