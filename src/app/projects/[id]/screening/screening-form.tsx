@@ -87,6 +87,13 @@ export function ScreeningForm({
 
   function setAnswer(id: string, value: "yes" | "no") {
     setAnswers((prev) => ({ ...prev, [id]: value }));
+    // Mark as reviewed — remove blue AI indicator
+    setAiFilledIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
   }
 
   function onSubmit() {

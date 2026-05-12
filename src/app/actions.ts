@@ -95,6 +95,12 @@ async function writeAttachments(
   }
 }
 
+export async function deleteProject(projectId: string): Promise<void> {
+  await requireProjectAccess(projectId);
+  await prisma.project.delete({ where: { id: projectId } });
+  revalidatePath("/");
+}
+
 export async function createProject(formData: FormData) {
   const session = await requireSession();
   const name = String(formData.get("name") ?? "").trim();

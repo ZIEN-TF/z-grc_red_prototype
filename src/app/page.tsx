@@ -25,6 +25,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
+import { DeleteProjectButton } from "@/app/delete-project-button";
 
 type Filter = "all" | "active" | "finalized";
 
@@ -242,7 +243,10 @@ function ProjectCard({
             <CardTitle className="truncate text-base">{p.name}</CardTitle>
             <CardDescription className="truncate">{p.manufacturer}</CardDescription>
           </div>
-          <StatusBadge status={status} />
+          <div className="flex items-center gap-1">
+            <StatusBadge status={status} />
+            <DeleteProjectButton projectId={p.id} projectName={p.name} />
+          </div>
         </div>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-3">
