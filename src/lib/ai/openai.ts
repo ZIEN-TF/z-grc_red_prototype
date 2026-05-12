@@ -67,8 +67,10 @@ const XLSX_MIME =
 // Truncate extracted text to keep the prompt size and cost predictable.
 const MAX_EXTRACTED_TEXT_CHARS = 60_000;
 
+// Convert DOCX to HTML so table structure is preserved for the AI.
+// Raw text extraction loses column relationships, making tables unreadable.
 async function extractDocxText(buf: Buffer): Promise<string> {
-  const res = await mammoth.extractRawText({ buffer: buf });
+  const res = await mammoth.convertToHtml({ buffer: buf });
   return res.value;
 }
 

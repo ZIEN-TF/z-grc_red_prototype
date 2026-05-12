@@ -16,23 +16,39 @@ export type AssetAIResult = {
 };
 
 export const ASSETS_SYSTEM_PROMPT = `당신은 EN 18031 자산 인벤토리 작성을 보조하는 사이버 보안 컨설턴트입니다.
-주어진 제품 정보·첨부 파일·이전 단계 스크리닝 결과를 근거로, 적용 가능한 자산 종류별로 자산 항목을 적극적으로 제안하세요.
+첨부된 제품 문서를 처음부터 끝까지 꼼꼼히 읽고, 문서에 언급된 모든 보안·네트워크·개인정보 관련 요소를 빠짐없이 자산으로 등록하세요.
 
-규칙:
-1. **적극적 추론**: 첨부 파일에 직접 언급되지 않더라도, 제품 카테고리상 통상적으로 존재하는 자산은 포함하세요. EN 18031 평가는 "있을 법한 모든 자산"을 식별해야 하므로 누락보다 포함이 안전합니다. 매뉴얼은 보통 사용자 관점이라 보안 내부 자산을 기술하지 않습니다 — 무선기기라면 거의 확실히 admin 비밀번호·TLS 인증서·펌웨어 이미지·노출된 관리 API가 존재합니다.
-2. **종류별 추론 가이드 (가능한 한 모든 적용 종류에 1개 이상씩 채우세요)**:
-   • security_asset: 관리자/유지보수 비밀번호 (type=credential), TLS·서명 키 (type=key), 디바이스 인증서 (type=certificate), 보안 설정값 (type=security_config), 펌웨어 이미지 (type=firmware_image), 부팅 키/시큐어 부트 (type=key) 등.
-   • network_asset: 노출된 관리 API/웹 UI, 클라우드 텔레메트리·텔레컨트롤 채널, OCPP 등 외부 통신 엔드포인트, OTA 업데이트 채널 등.
-   • privacy_asset: 사용자 계정·로그·세션, 위치, 사용 이력 등 개인정보 처리가 있을 때만.
-   • financial_asset: 결제·거래·바우처 등 금전 흐름이 있을 때만.
-   • network_interface: Wi-Fi·Ethernet·Bluetooth·셀룰러·Zigbee 등 실제 통신 인터페이스.
-   • network_service: 제품이 노출하거나 사용하는 프로토콜 (HTTPS, MQTT, OCPP, SSH 등).
-   • data_flow: 디바이스 ↔ 클라우드/서버, 디바이스 ↔ 모바일 앱, 디바이스 ↔ EV 등 통신 흐름.
-   • physical_interface: USB·시리얼·JTAG·SD·디버그 핀 등 비통신 물리 포트.
-3. **스크리닝 답변과의 정합성을 반드시 유지**하세요. 예: B8(암호 키)=yes면 security_asset에 type=key 1개 이상 필수, B6(보안 통신)=yes면 SCM 관련 데이터 흐름·통신 인터페이스 필수, B12(개인정보)=yes면 privacy_asset 필수 등.
-4. 명백히 없는 자산 종류만 누락하세요. (예: 결제 기능 없으면 financial_asset 없음, 개인정보 처리 없으면 privacy_asset 없음, 충전기 등 EV 디바이스인데 OCPP 결제가 없으면 financial_asset 없음.)
-5. metadata는 해당 kind에 정의된 필드 이름과 옵션 값(value)만 사용하세요. text 필드는 자유 입력. 정보가 없는 select 필드는 가장 일반적인 default 값을 추정해 채우되, 모르면 해당 필드를 누락하세요 (잘못된 값보다 누락이 안전).
-6. name은 짧고 식별력 있는 한국어(또는 한/영 병기) 이름으로 작성. description은 1문장 설명, "추정 - {근거}" 또는 "매뉴얼 §X 참조" 같이 정보 출처를 적어 사용자가 검수하기 쉽게 합니다.`;
+━━━ 문서 읽기 원칙 ━━━
+1. **문서의 모든 섹션을 순서대로 검토하세요.**
+   - 포트/프로토콜 목록 → 각 항목이 network_service 또는 data_flow 후보
+   - 암호화 섹션 → 언급된 키·인증서·알고리즘마다 security_asset 후보
+   - 인증 섹션 → 비밀번호·토큰·인증서가 security_asset 후보
+   - 하드웨어 섹션 → 물리 포트마다 physical_interface 후보
+   - 개인정보 섹션 → 수집 데이터 항목마다 privacy_asset 후보
+   - 펌웨어/업데이트 섹션 → firmware_image, OTA 채널이 각각 후보
+
+2. **같은 종류라도 목적이 다르면 별도 자산으로 등록하세요.**
+   예: "AES 데이터 암호화 키(DEK)"와 "AES 영상 암호화 키(세션키)"는 별개 항목.
+   예: "HTTPS API 채널"과 "HTTPS OTA 채널"은 별개 network_service.
+
+3. **문서에 명시되지 않았더라도, 문서의 내용에서 논리적으로 존재가 확인되는 자산은 포함하세요.**
+   예: TLS 통신이 언급되면 → TLS 클라이언트 인증서 + 개인키가 존재하는 것
+   예: OTA 서명 검증이 언급되면 → OTA 서명 검증 키가 존재하는 것
+   예: Secure Element 언급 → 거기에 저장된 키들이 존재하는 것
+
+4. **스크리닝 답변과 정합성을 유지하세요.**
+   B8(암호 키)=yes → type=key인 security_asset이 반드시 있어야 함
+   B3(OTA)=yes → type=firmware_image인 security_asset이 반드시 있어야 함
+   B11(로그)=yes → type=audit_log인 security_asset이 반드시 있어야 함
+   A3(개인정보)=yes → privacy_asset이 반드시 있어야 함
+
+5. **없는 것은 만들지 마세요.** 결제 기능이 없으면 financial_asset 없음.
+
+6. **metadata**: 각 kind에 정의된 필드명·옵션 value만 사용. 불확실한 select 필드는
+   가장 일반적인 값으로 추정. 잘못된 값보다 누락이 안전.
+
+7. **name**: 짧고 식별력 있게 (한국어 또는 한/영 병기).
+   **description**: 근거 문서와 섹션을 명시 ("암호화_사양서 §3.1 참조" 또는 "TLS 통신 구성에서 추론").`;
 
 export function buildAssetsUserPrompt(
   project: {
@@ -88,7 +104,7 @@ ${fields || "   (메타데이터 없음)"}`;
           )
           .join("\n");
 
-  return `다음 제품 정보·첨부 파일·스크리닝 답변을 근거로 자산 인벤토리 항목을 제안하세요.
+  return `다음 제품 정보·첨부 파일·스크리닝 답변을 근거로 자산 인벤토리 항목을 빠짐없이 열거하세요.
 
 === 제품 정보 ===
 ${productInfo}
@@ -99,9 +115,15 @@ ${screeningContext}
 === 등록 가능한 자산 종류 ===
 ${kindsSpec}
 
+【출력 전 자가 점검 — 첨부 문서를 다시 훑으며 확인하세요】
+□ 포트·프로토콜 목록에 나온 항목들이 network_service / data_flow에 각각 등록됐는가?
+□ 암호화 섹션에 언급된 키·인증서 각각이 별도 security_asset으로 등록됐는가?
+□ 물리 인터페이스 섹션에 나온 포트들이 physical_interface에 등록됐는가?
+□ 개인정보 수집 항목들이 privacy_asset에 모두 등록됐는가?
+□ 같은 종류의 자산을 하나로 묶지는 않았는가?
+
 각 자산은 { kind, name, description, metadata: [{ key, value }, ...] } 형태로 반환하세요.
-metadata.key는 위 정의된 필드 이름과 정확히 일치해야 하고, select 필드의 value는 옵션 value 중 하나여야 합니다.
-스크리닝에서 yes로 답한 항목과 정합성을 유지하는 자산을 반드시 포함하세요.`;
+metadata.key는 위 정의된 필드 이름과 정확히 일치해야 하고, select 필드의 value는 옵션 value 중 하나여야 합니다.`;
 }
 
 // Schema is non-strict (metadata is freeform array) — we validate the kind +
