@@ -319,6 +319,79 @@ export async function deleteSumInstance(input: {
   revalidatePath(`/projects/${input.projectId}/dt`);
 }
 
+// ── Authenticator instances (named inline from AUM-2 DT when PASS) ──
+export type AuthType =
+  | "password"
+  | "pin"
+  | "biometric"
+  | "certificate"
+  | "network_trust"
+  | "other"
+  | "";
+
+export type PasswordSubtype =
+  | "factory_default"
+  | "user_set"
+  | "third_party"
+  | "none"
+  | "";
+
+export async function createAuthenticatorInstance(input: {
+  projectId: string;
+  acmId: string;
+  name: string;
+  authType: AuthType;
+  passwordSubtype: PasswordSubtype;
+}): Promise<{ id: string }> {
+  await assertProjectEditable(input.projectId);
+  const row = await prisma.asset.create({
+    data: {
+      projectId: input.projectId,
+      kind: "authenticator_instance",
+      name: input.name.trim() || "(이름 없음)",
+      metadata: JSON.stringify({
+        acmId: input.acmId,
+        authType: input.authType,
+        passwordSubtype: input.passwordSubtype,
+      }),
+    },
+  });
+  revalidatePath(`/projects/${input.projectId}/dt`);
+  return { id: row.id };
+}
+
+export async function updateAuthenticatorInstance(input: {
+  id: string;
+  projectId: string;
+  acmId: string;
+  name: string;
+  authType: AuthType;
+  passwordSubtype: PasswordSubtype;
+}) {
+  await assertProjectEditable(input.projectId);
+  await prisma.asset.update({
+    where: { id: input.id },
+    data: {
+      name: input.name.trim() || "(이름 없음)",
+      metadata: JSON.stringify({
+        acmId: input.acmId,
+        authType: input.authType,
+        passwordSubtype: input.passwordSubtype,
+      }),
+    },
+  });
+  revalidatePath(`/projects/${input.projectId}/dt`);
+}
+
+export async function deleteAuthenticatorInstance(input: {
+  projectId: string;
+  id: string;
+}) {
+  await assertProjectEditable(input.projectId);
+  await prisma.asset.delete({ where: { id: input.id } });
+  revalidatePath(`/projects/${input.projectId}/dt`);
+}
+
 // Save a single DT node answer. Upserts manually because SQLite treats NULLs
 // as distinct in unique indexes (would prevent upsert for global requirements).
 export async function saveDTNodeAnswer(input: {
