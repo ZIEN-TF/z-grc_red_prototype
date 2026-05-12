@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Check, X, Info, Sparkles, Loader2 } from "lucide-react";
 import { saveScreening } from "@/app/actions";
@@ -47,7 +46,6 @@ export function ScreeningForm({
   initialAnswers: ScreeningAnswerMap;
   readOnly?: boolean;
 }) {
-  const router = useRouter();
   const [answers, setAnswers] = useState<ScreeningAnswerMap>(initialAnswers);
   const [pending, startTransition] = useTransition();
   const [aiPending, startAiTransition] = useTransition();
@@ -80,7 +78,6 @@ export function ScreeningForm({
         });
         setAiFilledIds(newIds);
         toast.success(`AI가 ${result.filled}개 항목을 채웠습니다. 내용을 검수해 주세요.`);
-        router.refresh();
       } catch (err) {
         const msg = err instanceof Error ? err.message : "AI 호출 실패";
         toast.error(msg);
