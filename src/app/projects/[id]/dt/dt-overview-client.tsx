@@ -1,14 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
   XCircle,
   MinusCircle,
   CircleDashed,
   ChevronDown,
+  Sparkles,
+  Loader2,
 } from "lucide-react";
+import { toast } from "sonner";
+import { setAllAIDTAnswersReviewed } from "@/app/ai-actions";
 import {
   Card,
   CardContent,
@@ -52,13 +57,25 @@ export function DTOverviewClient({
   projectId,
   selectedStandard,
   mechanismsWithoutDTs,
+  aiGeneratedReqIds = [],
 }: {
   groups: SerializedMechGroup[];
   projectId: string;
   selectedStandard: number;
   mechanismsWithoutDTs: string[];
+  aiGeneratedReqIds?: string[];
 }) {
   const [filter, setFilter] = useState<FilterMode>("all");
+  const [reviewPending, startReviewTransition] = useTransition();
+  const router = useRouter();
+
+  function onReviewAllDT() {
+    startReviewTransition(async () => {
+      await setAllAIDTAnswersReviewed(projectId);
+      toast.success("모든 AI DT 답변을 검수 완료로 표시했습니다.");
+      router.refresh();
+    });
+  }
 
   // Per-group open state — default closed if all requirements are done
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
@@ -95,6 +112,29 @@ export function DTOverviewClient({
 
   return (
     <>
+      {/* AI review banner */}
+      {aiGeneratedReqIds.length > 0 && (
+        <div className="flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-4 py-2">
+          <span className="flex items-center gap-1.5 text-sm text-primary">
+            <Sparkles className="size-4" />
+            AI가 {aiGeneratedReqIds.length}개 요구사항을 채웠습니다. 내용을 검수해 주세요.
+          </span>
+          <button
+            type="button"
+            onClick={onReviewAllDT}
+            disabled={reviewPending}
+            className="flex h-7 items-center gap-1 rounded-md border border-primary/40 px-2 text-xs font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
+          >
+            {reviewPending ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : (
+              <Sparkles className="size-3" />
+            )}
+            전체 검수 완료 ({aiGeneratedReqIds.length})
+          </button>
+        </div>
+      )}
+
       {/* Filter bar */}
       <div className="flex items-center gap-2">
         <span className="text-xs text-muted-foreground">보기:</span>
@@ -183,11 +223,15 @@ export function DTOverviewClient({
                     const doneAll =
                       req.totals.total > 0 && req.totals.pending === 0;
                     const href = `/projects/${projectId}/dt/${req.id}?standard=${selectedStandard}`;
+                    const isAiGenerated = aiGeneratedReqIds.includes(req.id);
                     return (
                       <Link
                         key={req.id}
                         href={href}
-                        className="block rounded-lg border p-4 transition hover:border-primary/50 hover:bg-accent/30"
+                        className={cn(
+                          "block rounded-lg border p-4 transition hover:border-primary/50 hover:bg-accent/30",
+                          isAiGenerated && "border-primary/40 bg-primary/5",
+                        )}
                       >
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="flex-1">
@@ -198,6 +242,11 @@ export function DTOverviewClient({
                               <span className="text-sm font-medium">
                                 {req.title_ko}
                               </span>
+                              {isAiGenerated && (
+                                <span className="inline-flex items-center gap-0.5 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                                  <Sparkles className="size-2.5" /> AI
+                                </span>
+                              )}
                             </div>
                             <p className="mt-0.5 text-xs text-muted-foreground">
                               {req.title_en}

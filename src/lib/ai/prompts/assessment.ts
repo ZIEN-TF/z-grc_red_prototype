@@ -175,7 +175,7 @@ ${opts.requirement.requirementText_ko}
 === 평가 단위별 채울 평가 유형 ===
 ${blocks}
 
-각 (assetKey, type)마다 testMethod 초안을 3~6문장 한국어로 작성하세요.`;
+각 (assetKey, type)마다 testMethod 초안을 **번호 매긴 6~12단계 절차**로 한국어로 작성하세요. 반드시 실제 도구명과 구체적인 명령어(예: nmap -sV -p 443 <ip>, openssl s_client -connect <ip>:443)를 포함하고, 마지막 줄에 "증적: ..." 형식으로 첨부해야 할 산출물을 명시하세요.`;
 }
 
 export function buildAssessmentJsonSchema(

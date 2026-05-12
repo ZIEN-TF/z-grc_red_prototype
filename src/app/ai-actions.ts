@@ -1210,3 +1210,23 @@ export async function setAssessmentReviewed(input: {
   });
   revalidatePath(`/projects/${input.projectId}/assessment`);
 }
+
+// Bulk-mark all AI-generated unreviewed DT answers as reviewed.
+export async function setAllAIDTAnswersReviewed(projectId: string) {
+  await assertProjectEditable(projectId);
+  await prisma.dTAnswer.updateMany({
+    where: { projectId, aiGenerated: true, userReviewed: false },
+    data: { userReviewed: true, userReviewedAt: new Date() },
+  });
+  revalidatePath(`/projects/${projectId}/dt`);
+}
+
+// Bulk-mark all AI-generated unreviewed evidence fields as reviewed.
+export async function setAllAIEvidenceReviewed(projectId: string) {
+  await assertProjectEditable(projectId);
+  await prisma.dTEvidence.updateMany({
+    where: { projectId, aiGenerated: true, userReviewed: false },
+    data: { userReviewed: true, userReviewedAt: new Date() },
+  });
+  revalidatePath(`/projects/${projectId}/evidence`, "layout");
+}

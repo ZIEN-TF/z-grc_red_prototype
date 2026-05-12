@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Plus, Trash2, Pencil } from "lucide-react";
+import { Plus, Trash2, Pencil, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import {
   Card,
@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/select";
 import { type AssetKindConfig, optionLabel } from "@/lib/asset-kinds";
 import { createAsset, deleteAsset, updateAsset } from "@/app/actions";
+import { cn } from "@/lib/utils";
 
 export type AssetRow = {
   id: string;
@@ -53,10 +54,12 @@ export function AssetSection({
   projectId,
   kindConfig,
   assets,
+  aiGeneratedIds,
 }: {
   projectId: string;
   kindConfig: AssetKindConfig;
   assets: AssetRow[];
+  aiGeneratedIds?: string[];
 }) {
   const [addOpen, setAddOpen] = useState(false);
 
@@ -134,6 +137,7 @@ export function AssetSection({
                     asset={a}
                     kindConfig={kindConfig}
                     projectId={projectId}
+                    isAiGenerated={aiGeneratedIds?.includes(a.id) ?? false}
                   />
                 ))}
               </TableBody>
@@ -149,10 +153,12 @@ function AssetRowView({
   asset,
   kindConfig,
   projectId,
+  isAiGenerated,
 }: {
   asset: AssetRow;
   kindConfig: AssetKindConfig;
   projectId: string;
+  isAiGenerated?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [editOpen, setEditOpen] = useState(false);
@@ -165,8 +171,17 @@ function AssetRowView({
   }
 
   return (
-    <TableRow>
-      <TableCell className="font-medium">{asset.name}</TableCell>
+    <TableRow className={cn(isAiGenerated && "border-primary/40 bg-primary/5")}>
+      <TableCell className="font-medium">
+        <span className="flex items-center gap-1.5">
+          {asset.name}
+          {isAiGenerated && (
+            <span className="inline-flex items-center gap-0.5 rounded bg-primary/10 px-1 py-0.5 text-[10px] font-normal text-primary">
+              <Sparkles className="size-2.5" /> AI
+            </span>
+          )}
+        </span>
+      </TableCell>
       {kindConfig.listColumns.map((col) => {
         const raw = asset.metadata[col] ?? "";
         if (!raw) {

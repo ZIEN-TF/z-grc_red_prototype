@@ -39,6 +39,7 @@ import { EvidenceForm } from "./evidence-form";
 import { LockedBanner } from "../locked-banner";
 import { requireSession } from "@/lib/auth";
 import { AIFillEvidenceButton } from "./ai-fill-evidence-button";
+import { EvidenceAIReviewBanner } from "./evidence-ai-review-banner";
 
 export default async function EvidencePage({
   params,
@@ -57,7 +58,7 @@ export default async function EvidencePage({
     include: {
       assets: true,
       dtAnswers: true,
-      dtEvidences: { select: { id: true, assetId: true, requirementId: true, fieldId: true, value: true, userReviewed: true } },
+      dtEvidences: { select: { id: true, assetId: true, requirementId: true, fieldId: true, value: true, userReviewed: true, aiGenerated: true } },
       screeningAnswers: true,
       attachments: { select: { id: true } },
     },
@@ -119,10 +120,16 @@ export default async function EvidencePage({
 
   // Group evidences by (req, asset)
   const evidenceValueMap = new Map<string, string>();
+  const evidenceAiMap = new Map<string, boolean>();
   for (const ev of project.dtEvidences) {
     const key = `${ev.requirementId}::${ev.assetId ?? "__global__"}::${ev.fieldId}`;
     evidenceValueMap.set(key, ev.value);
+    evidenceAiMap.set(key, ev.aiGenerated && !ev.userReviewed);
   }
+
+  const aiEvidenceIds = project.dtEvidences
+    .filter((ev) => ev.aiGenerated && !ev.userReviewed)
+    .map((ev) => ev.id);
 
   type RequirementBlock = {
     reqId: string;
@@ -139,7 +146,7 @@ export default async function EvidencePage({
       // For structured: the answers map for visibility filtering
       answeredMap: Record<string, "yes" | "no">;
       // For structured: the subset of evidence fields that apply + current values
-      applicableFields: Array<{ field: EvidenceField; value: string }>;
+      applicableFields: Array<{ field: EvidenceField; value: string; aiGenerated: boolean }>;
       // For legacy notes fallback: YES-answered path steps
       pathSteps: Array<{
         nodeId: string;
@@ -228,7 +235,7 @@ export default async function EvidencePage({
       const pathSummary = buildPathSummary(walk);
 
       // Structured: compute which fields apply given current answers + asset kind
-      const applicableFields: Array<{ field: EvidenceField; value: string }> = [];
+      const applicableFields: Array<{ field: EvidenceField; value: string; aiGenerated: boolean }> = [];
       if (block.usesStructured && req.evidenceFields) {
         for (const f of req.evidenceFields) {
           // Asset kind filter
@@ -249,6 +256,7 @@ export default async function EvidencePage({
           applicableFields.push({
             field: f,
             value: evidenceValueMap.get(key) ?? "",
+            aiGenerated: evidenceAiMap.get(key) ?? false,
           });
         }
       }
@@ -324,6 +332,12 @@ export default async function EvidencePage({
           disabled={project.finalizedAt !== null}
         />
       </div>
+
+      <EvidenceAIReviewBanner
+        projectId={project.id}
+        count={aiEvidenceIds.length}
+        evidenceIds={aiEvidenceIds}
+      />
 
       {applicableStandards.length > 1 && (
         <div className="flex flex-wrap gap-1 border-b">

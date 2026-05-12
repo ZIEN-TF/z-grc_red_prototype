@@ -2,14 +2,15 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Check, CircleDashed, Save } from "lucide-react";
+import { Check, CircleDashed, Save, Sparkles } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { saveDTEvidence } from "@/app/actions";
 import type { EvidenceField } from "@/lib/decision-trees";
+import { cn } from "@/lib/utils";
 
-type FieldWithValue = { field: EvidenceField; value: string };
+type FieldWithValue = { field: EvidenceField; value: string; aiGenerated?: boolean };
 type SaveState = "idle" | "saving" | "saved" | "error";
 
 export function StructuredEvidenceForm({
@@ -31,6 +32,9 @@ export function StructuredEvidenceForm({
     Object.fromEntries(fields.map((f) => [f.field.id, f.value])),
   );
   const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({});
+  const [aiFieldIds, setAiFieldIds] = useState<Set<string>>(
+    () => new Set(fields.filter((f) => f.aiGenerated).map((f) => f.field.id)),
+  );
   const [, startTransition] = useTransition();
 
   function setFieldState(fieldId: string, state: SaveState) {
@@ -43,6 +47,12 @@ export function StructuredEvidenceForm({
 
   function onSave(fieldId: string) {
     setFieldState(fieldId, "saving");
+    setAiFieldIds((prev) => {
+      if (!prev.has(fieldId)) return prev;
+      const next = new Set(prev);
+      next.delete(fieldId);
+      return next;
+    });
     startTransition(async () => {
       try {
         await saveDTEvidence({
@@ -91,15 +101,26 @@ export function StructuredEvidenceForm({
           {groupFields.map(({ field, value: initialValue }) => {
             const current = values[field.id] ?? initialValue ?? "";
             const state = saveStates[field.id] ?? "idle";
+            const isAi = aiFieldIds.has(field.id);
             return (
               <div
                 key={field.id}
-                className="rounded-md border bg-muted/20 p-3"
+                className={cn(
+                  "rounded-md border bg-muted/20 p-3",
+                  isAi && "border-primary/40 bg-primary/5",
+                )}
               >
                 <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-2">
-                  <code className="rounded bg-background px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                    {field.id}
-                  </code>
+                  <div className="flex items-center gap-1.5">
+                    <code className="rounded bg-background px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                      {field.id}
+                    </code>
+                    {isAi && (
+                      <span className="inline-flex items-center gap-0.5 rounded bg-primary/10 px-1 py-0.5 text-[10px] font-medium text-primary">
+                        <Sparkles className="size-2.5" /> AI
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2">
                     <SaveIndicator state={state} />
                     {field.required && (

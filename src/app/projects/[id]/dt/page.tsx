@@ -46,7 +46,7 @@ export default async function DTOverviewPage({
     where: { id },
     include: {
       assets: true,
-      dtAnswers: { select: { id: true, assetId: true, requirementId: true, nodeId: true, answer: true, notes: true, userReviewed: true } },
+      dtAnswers: { select: { id: true, assetId: true, requirementId: true, nodeId: true, answer: true, notes: true, userReviewed: true, aiGenerated: true } },
       screeningAnswers: true,
       attachments: { select: { id: true } },
     },
@@ -285,6 +285,14 @@ export default async function DTOverviewPage({
 
   const reviewedDTCount = project.dtAnswers.some((a) => a.userReviewed);
 
+  const aiGeneratedReqIds = [
+    ...new Set(
+      project.dtAnswers
+        .filter((a) => a.aiGenerated && !a.userReviewed)
+        .map((a) => a.requirementId),
+    ),
+  ];
+
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <DTScrollRestorer projectId={project.id} />
@@ -418,6 +426,7 @@ export default async function DTOverviewPage({
           projectId={project.id}
           selectedStandard={selectedStandard}
           mechanismsWithoutDTs={mechanismsWithoutDTs}
+          aiGeneratedReqIds={aiGeneratedReqIds}
         />
       )}
 

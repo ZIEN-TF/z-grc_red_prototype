@@ -20,6 +20,7 @@ import { AssetSection } from "./asset-section";
 import { CSVImportDialog } from "./csv-import-dialog";
 import { LockedBanner } from "../locked-banner";
 import { AIFillAssetsButton } from "./ai-fill-assets-button";
+import { AssetsAIReviewBanner } from "./assets-ai-review-banner";
 
 export default async function AssetsPage({
   params,
@@ -49,6 +50,11 @@ export default async function AssetsPage({
   for (const a of project.assets) {
     countsByKind.set(a.kind, (countsByKind.get(a.kind) ?? 0) + 1);
   }
+
+  const aiGeneratedAssets = project.assets.filter(
+    (a) => a.aiGenerated && !a.userReviewed,
+  );
+  const aiGeneratedIds = aiGeneratedAssets.map((a) => a.id);
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -90,6 +96,12 @@ export default async function AssetsPage({
           disabled={project.finalizedAt !== null}
         />
       </div>
+
+      <AssetsAIReviewBanner
+        projectId={project.id}
+        count={aiGeneratedIds.length}
+        assetIds={aiGeneratedIds}
+      />
 
       <Card className="border-accent bg-accent/30">
         <CardHeader className="pb-3">
@@ -141,6 +153,7 @@ export default async function AssetsPage({
                 metadata: safeJson(a.metadata),
                 createdAt: a.createdAt.toISOString(),
               }))}
+            aiGeneratedIds={aiGeneratedIds}
           />
         </div>
       ))}

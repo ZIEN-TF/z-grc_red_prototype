@@ -95,12 +95,6 @@ async function writeAttachments(
   }
 }
 
-export async function deleteProject(projectId: string): Promise<void> {
-  await requireProjectAccess(projectId);
-  await prisma.project.delete({ where: { id: projectId } });
-  revalidatePath("/");
-}
-
 export async function createProject(formData: FormData) {
   const session = await requireSession();
   const name = String(formData.get("name") ?? "").trim();
@@ -216,6 +210,8 @@ export async function updateAsset(input: UpdateAssetInput) {
       name: input.name.trim(),
       description: input.description?.trim() || null,
       metadata: JSON.stringify(input.metadata ?? {}),
+      userReviewed: true,
+      userReviewedAt: new Date(),
     },
   });
   revalidatePath(`/projects/${input.projectId}/assets`);
@@ -570,7 +566,7 @@ export async function saveDTEvidence(input: {
   if (existing) {
     await prisma.dTEvidence.update({
       where: { id: existing.id },
-      data: { value: input.value },
+      data: { value: input.value, userReviewed: true, userReviewedAt: new Date() },
     });
   } else {
     await prisma.dTEvidence.create({
