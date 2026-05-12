@@ -164,8 +164,14 @@ export async function runAIWithAttachments<T>(opts: {
   model?: string;
 }): Promise<T> {
   const client = getOpenAI();
-  const model =
-    opts.model ?? (opts.attachments.length > 0 ? VISION_MODEL : TEXT_MODEL);
+  // Use VISION_MODEL only when there are actual image or PDF file attachments
+  // that require visual processing. Text-extracted DOCX/XLSX attachments are
+  // plain text and don't benefit from vision — using TEXT_MODEL avoids hitting
+  // the much lower TPM rate limit on gpt-4o.
+  const needsVision = opts.attachments.some(
+    (a) => a.kind === "image" || a.kind === "file",
+  );
+  const model = opts.model ?? (needsVision ? VISION_MODEL : TEXT_MODEL);
 
   // Build the user content array: prompt text + each attachment + a small
   // descriptor line per attachment so the model knows what each one is.
