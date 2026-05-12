@@ -472,10 +472,13 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
     requirementText_en: "Authentication mechanisms required by AUM-1 must be resilient against brute-force attacks.",
     requirementText_ko: "AUM-1에서 요구되는 인증 메커니즘은 무차별 대입 공격(brute-force)에 대한 복원력을 가져야 한다.",
     iterateOver: {
-      description_en: "For each authenticator using password-based authentication",
-      description_ko: "비밀번호 기반 인증을 사용하는 각 인증자에 대해",
+      description_en: "For each authenticator using password-based authentication (excluding third-party solutions)",
+      description_ko: "비밀번호 기반 인증을 사용하는 각 인증자에 대해 (타사 솔루션 제외)",
       kinds: ["authenticator_instance"],
-      metadataIn: { field: "authType", values: ["password"] },
+      metadataIn: [
+        { field: "authType", values: ["password"] },
+        { field: "passwordSubtype", values: ["factory_default", "user_set"] },
+      ],
     },
     evidenceFields: [
       { id: "E.Info.AUM-6.AUM.BFProtection", scope: "per_asset", required: true, multiline: true, group_ko: "무차별 대입 방어", group_en: "Brute-force Protection", prompt_ko: "구현 카테고리를 고려하여 무차별 대입 공격에 대한 복원력이 어떻게 보장되는지 기술하세요 (시도 제한·지연·잠금 등).", prompt_en: "Describe how brute-force resilience is ensured (attempt limit, delay, lockout) per implementation category." },

@@ -346,10 +346,13 @@ export const P3_REQUIREMENTS: DTRequirement[] = [
     requirementText_en: "Authentication mechanisms required by AUM-1-1/-1-2/-1-3 must be resilient against brute-force attacks.",
     requirementText_ko: "AUM-1-1·-1-2·-1-3에서 요구되는 인증 메커니즘은 무차별 대입 공격에 대한 복원력을 가져야 한다.",
     iterateOver: {
-      description_en: "For each authenticator using password-based authentication",
-      description_ko: "비밀번호 기반 인증을 사용하는 각 인증자에 대해",
+      description_en: "For each authenticator using password-based authentication (excluding third-party solutions)",
+      description_ko: "비밀번호 기반 인증을 사용하는 각 인증자에 대해 (타사 솔루션 제외)",
       kinds: ["authenticator_instance"],
-      metadataIn: { field: "authType", values: ["password"] },
+      metadataIn: [
+        { field: "authType", values: ["password"] },
+        { field: "passwordSubtype", values: ["factory_default", "user_set"] },
+      ],
     },
     evidenceFields: [
       { id: "E.Info.AUM-6.AUM", scope: "per_asset", required: true, multiline: true, group_ko: "인증 메커니즘", group_en: "Authentication Mechanism", prompt_ko: "AUM-1-1/-1-2가 요구하는 이 인증 메커니즘 설명", prompt_en: "Description of this authentication mechanism required by AUM-1-1/-1-2" },
