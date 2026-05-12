@@ -15,6 +15,8 @@ export type AssetKind =
   | "physical_interface"
   // ACM instances — named inline at the bottom of ACM-2 DT, not in inventory
   | "acm_instance"
+  // Authenticator instances — named inline from AUM-2 DT, not in inventory
+  | "authenticator_instance"
   // SUM instances — named inline at the bottom of SUM-1 DT (PASS only)
   | "sum_instance";
 
@@ -656,32 +658,44 @@ export const ASSET_KINDS: AssetKindConfig[] = [
           { value: "no", label_ko: "아니오", label_en: "No" },
         ],
       },
+    ],
+  },
+  {
+    // Named inline from AUM-2 DT. Hidden from the main asset inventory.
+    kind: "authenticator_instance",
+    category: "asset",
+    hideFromInventory: true,
+    title_ko: "인증자",
+    title_en: "Authenticator",
+    description_ko: "AUM-2에서 등록한 인증자. AUM-5-1/5-2/6 요구사항의 반복 단위로 사용됩니다.",
+    description_en: "Authenticator registered from AUM-2; iterated by AUM-5-1/5-2/6 requirements.",
+    namePlaceholder: "예: 관리자 비밀번호 / 바이오메트릭 인증",
+    listColumns: [],
+    metadataFields: [
       {
-        name: "password_type",
-        label_ko: "비밀번호 유형",
-        label_en: "Password Type",
+        name: "authType",
+        label_ko: "인증자 유형",
+        label_en: "Authenticator Type",
         type: "select",
         options: [
-          {
-            value: "factory_default",
-            label_ko: "공장 기본 비밀번호 사용",
-            label_en: "Factory default password",
-          },
-          {
-            value: "user_set",
-            label_ko: "사용자 설정 비밀번호 (공장 기본 아님)",
-            label_en: "User-set password (non factory default)",
-          },
-          {
-            value: "third_party",
-            label_ko: "타사 솔루션 사용 (타사 로그인 비밀번호)",
-            label_en: "Third-party solution (third-party login password)",
-          },
-          {
-            value: "none",
-            label_ko: "비밀번호 미사용 (생체·토큰·인증서 등)",
-            label_en: "No password (biometric, token, certificate, etc.)",
-          },
+          { value: "password", label_ko: "비밀번호", label_en: "Password" },
+          { value: "pin", label_ko: "PIN", label_en: "PIN" },
+          { value: "biometric", label_ko: "바이오메트릭 (지문·얼굴·음성)", label_en: "Biometric" },
+          { value: "certificate", label_ko: "인증서/토큰", label_en: "Certificate / Token" },
+          { value: "network_trust", label_ko: "네트워크 신뢰", label_en: "Network Trust" },
+          { value: "other", label_ko: "기타", label_en: "Other" },
+        ],
+      },
+      {
+        name: "passwordSubtype",
+        label_ko: "비밀번호 서브유형 (비밀번호인 경우)",
+        label_en: "Password Subtype (if password)",
+        type: "select",
+        options: [
+          { value: "factory_default", label_ko: "공장 기본 비밀번호", label_en: "Factory default" },
+          { value: "user_set", label_ko: "사용자 설정 (공장 기본 아님)", label_en: "User-set (non factory default)" },
+          { value: "third_party", label_ko: "타사 솔루션", label_en: "Third-party solution" },
+          { value: "none", label_ko: "해당 없음", label_en: "N/A" },
         ],
       },
     ],

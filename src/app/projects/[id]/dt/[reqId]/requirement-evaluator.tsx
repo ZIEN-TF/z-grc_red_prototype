@@ -32,13 +32,10 @@ import {
   type PathStep,
 } from "@/lib/decision-trees";
 import {
-  copyDTAnswersFrom,
   resetDTEvaluation,
   revertDTNodeAndAfter,
   saveDTNodeAnswer,
 } from "@/app/actions";
-import { Copy } from "lucide-react";
-import { useRouter } from "next/navigation";
 
 type InitialAnswer = {
   assetId: string | null;
@@ -58,14 +55,6 @@ function aKey(assetId: string | null) {
   return assetId ?? "__global__";
 }
 
-type SameAsRef = {
-  id: string;
-  title_ko: string;
-  title_en: string;
-  hasAnswers: boolean;
-  answerCount: number;
-} | null;
-
 type NAGateMessage = {
   reason_ko?: string;
   reason_en?: string;
@@ -77,7 +66,6 @@ export function RequirementEvaluator({
   requirement,
   matchingAssets,
   initialAnswers,
-  sameAsRef,
   autoNAByAsset,
   naGateMessage,
 }: {
@@ -85,36 +73,9 @@ export function RequirementEvaluator({
   requirement: DTRequirement;
   matchingAssets: MatchingAsset[];
   initialAnswers: InitialAnswer[];
-  sameAsRef: SameAsRef;
   autoNAByAsset: Record<string, boolean>;
   naGateMessage: NAGateMessage;
 }) {
-  const router = useRouter();
-  const [copyPending, startCopy] = useTransition();
-
-  function onCopyFromSameAs() {
-    if (!sameAsRef) return;
-    if (
-      !confirm(
-        `'${sameAsRef.id}'의 답변을 현재 요구사항으로 복사합니다.\n기존 답변이 있다면 덮어쓰게 됩니다. 진행할까요?`,
-      )
-    )
-      return;
-    startCopy(async () => {
-      try {
-        const result = await copyDTAnswersFrom({
-          projectId,
-          fromRequirementId: sameAsRef.id,
-          toRequirementId: requirement.id,
-        });
-        toast.success(`${result.copied}개 답변을 복사했습니다.`);
-        router.refresh();
-      } catch (err) {
-        toast.error("복사 실패 / Copy failed.");
-        console.error(err);
-      }
-    });
-  }
   // Map assetKey → { [nodeId]: "yes" | "no" }
   const [answers, setAnswers] = useState<
     Record<string, Record<string, "yes" | "no">>
@@ -160,41 +121,10 @@ export function RequirementEvaluator({
     );
   }
 
-  const sameAsBanner = sameAsRef ? (
-    <Card className="border-primary/30 bg-primary/5">
-      <CardContent className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
-        <div className="flex-1">
-          <p className="font-medium">
-            이 요구사항은{" "}
-            <span className="rounded bg-primary/15 px-1.5 py-0.5 font-mono text-xs">
-              {sameAsRef.id}
-            </span>{" "}
-            과(와) 동일한 DT 구조입니다.
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {sameAsRef.hasAnswers
-              ? `이전 답변 ${sameAsRef.answerCount}건이 있습니다. 버튼을 눌러 복사하면 재답변 없이 공유 자산의 답변이 채워집니다. 이후 수정 가능합니다.`
-              : "원본에 아직 답변이 없습니다. 원본을 먼저 평가한 뒤 복사하세요."}
-          </p>
-        </div>
-        <Button
-          size="sm"
-          variant={sameAsRef.hasAnswers ? "default" : "outline"}
-          onClick={onCopyFromSameAs}
-          disabled={!sameAsRef.hasAnswers || copyPending}
-        >
-          <Copy className="mr-1 size-4" />
-          {copyPending ? "복사 중… / Copying…" : `${sameAsRef.id} 답변 복사 / Copy`}
-        </Button>
-      </CardContent>
-    </Card>
-  ) : null;
-
   if (!requirement.iterateOver) {
     const globalAutoNA = autoNAByAsset["__global__"] ?? false;
     return (
       <div className="space-y-4">
-        {sameAsBanner}
         {globalAutoNA ? (
           <AutoNACard naGateMessage={naGateMessage} />
         ) : (
@@ -215,7 +145,6 @@ export function RequirementEvaluator({
 
   return (
     <div className="space-y-4">
-      {sameAsBanner}
       {matchingAssets.map((a) =>
         autoNAByAsset[a.id] ? (
           <AutoNACard

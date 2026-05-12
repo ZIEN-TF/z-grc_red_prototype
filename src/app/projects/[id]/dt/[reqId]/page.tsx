@@ -92,13 +92,37 @@ export default async function RequirementPage({
     ? req.iterateOver.kinds.filter((k) => !dedupedKinds.includes(k))
     : [];
 
-  const matchingAssets = req.iterateOver
+  // Build authenticator count per ACM for AUM-2-1 / AUM-2-2 filtering.
+  // Only query when needed to avoid unnecessary DB work.
+  const isAum2Variant = /^P[123]\.AUM-2-[12]$/.test(req.id);
+  const allAuthInstances = isAum2Variant ? await loadAuthenticatorInstances(id) : [];
+  const authCountByAcm: Record<string, number> = {};
+  for (const auth of allAuthInstances) {
+    if (auth.acmId) {
+      authCountByAcm[auth.acmId] = (authCountByAcm[auth.acmId] ?? 0) + 1;
+    }
+  }
+
+  let matchingAssets = req.iterateOver
     ? matchAssetsForRequirement(req, parsedAssets, dedupedKinds).map((a) => ({
         id: a.id,
         name: a.name,
         kindLabel: kindConfig(a.kind)?.title_ko ?? a.kind,
       }))
     : [];
+
+  // AUM-2-1: only ACMs with 0 or 1 authenticator (single-factor)
+  if (/^P[123]\.AUM-2-1$/.test(req.id)) {
+    matchingAssets = matchingAssets.filter(
+      (a) => (authCountByAcm[a.id] ?? 0) <= 1,
+    );
+  }
+  // AUM-2-2: only ACMs with 2 or more authenticators (multi-factor)
+  if (/^P[123]\.AUM-2-2$/.test(req.id)) {
+    matchingAssets = matchingAssets.filter(
+      (a) => (authCountByAcm[a.id] ?? 0) >= 2,
+    );
+  }
 
   // Serialize answers for the client
   const initialAnswers = project.dtAnswers.map((a) => ({
@@ -270,9 +294,6 @@ export default async function RequirementPage({
             requirement={req}
             matchingAssets={matchingAssets}
             initialAnswers={initialAnswers}
-            sameAsRef={
-              req.sameAs ? await buildSameAsRef(req.sameAs, project.id) : null
-            }
             autoNAByAsset={autoNAByAsset}
             naGateMessage={naGateMessage}
           />
@@ -376,26 +397,12 @@ async function loadAcmInstances(projectId: string) {
         meta = parsed as Record<string, string>;
       }
     } catch {}
-    const pt = meta.password_type;
-    const passwordType:
-      | "factory_default"
-      | "user_set"
-      | "third_party"
-      | "none"
-      | "" =
-      pt === "factory_default" ||
-      pt === "user_set" ||
-      pt === "third_party" ||
-      pt === "none"
-        ? pt
-        : "";
     return {
       id: r.id,
       name: r.name,
       interfaceNetwork: meta.interface_network === "yes",
       interfaceUser: meta.interface_user === "yes",
       interfaceMachine: meta.interface_machine === "yes",
-      passwordType,
     };
   });
 }
@@ -456,21 +463,6 @@ function buildAcmsWithAum2Pass(
   });
 }
 
-async function buildSameAsRef(sameAsId: string, projectId: string) {
-  const { requirementById } = await import("@/lib/decision-trees");
-  const src = requirementById(sameAsId);
-  if (!src) return null;
-  const count = await prisma.dTAnswer.count({
-    where: { projectId, requirementId: sameAsId },
-  });
-  return {
-    id: src.id,
-    title_ko: src.title_ko,
-    title_en: src.title_en,
-    hasAnswers: count > 0,
-    answerCount: count,
-  };
-}
 
 function safeJson(s: string): Record<string, string> {
   try {

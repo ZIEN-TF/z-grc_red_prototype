@@ -217,20 +217,12 @@ export async function updateAsset(input: UpdateAssetInput) {
 }
 
 // ── ACM instances (named inline from ACM-2 DT) ────────────────────
-export type AcmPasswordType =
-  | "factory_default"
-  | "user_set"
-  | "third_party"
-  | "none"
-  | "";
-
 export type AcmInstanceInput = {
   projectId: string;
   name: string;
   interfaceNetwork: boolean;
   interfaceUser: boolean;
   interfaceMachine: boolean;
-  passwordType: AcmPasswordType; // empty = unanswered
 };
 
 function acmMetadata(input: Omit<AcmInstanceInput, "projectId" | "name">): string {
@@ -238,7 +230,6 @@ function acmMetadata(input: Omit<AcmInstanceInput, "projectId" | "name">): strin
     interface_network: input.interfaceNetwork ? "yes" : "no",
     interface_user: input.interfaceUser ? "yes" : "no",
     interface_machine: input.interfaceMachine ? "yes" : "no",
-    password_type: input.passwordType,
   });
 }
 

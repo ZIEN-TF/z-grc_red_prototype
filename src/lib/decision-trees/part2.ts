@@ -325,7 +325,11 @@ export const P2_REQUIREMENTS: DTRequirement[] = [
     title_ko: "적절한 인증 메커니즘 (특별 카테고리 2요소)",
     requirementText_en: "If the equipment's primary intended functionality specifically processes special-category personal information, authentication for access to such information via user interfaces over network interfaces shall support verification based on at least two different elements of knowledge, possession and inherence (two-factor authentication).",
     requirementText_ko: "기기의 주된 의도된 기능이 특별 카테고리 개인정보의 처리를 포함하는 경우, 네트워크 인터페이스 상의 사용자 인터페이스를 통한 해당 정보 접근에 대해 인증 메커니즘은 지식·소유·고유성 중 서로 다른 최소 2개 요소의 증거 검증을 지원해야 한다(2요소 인증).",
-    iterateOver: null,
+    iterateOver: {
+      description_en: "For each ACM with 2 or more registered authenticators",
+      description_ko: "인증자가 2개 이상 등록된 각 ACM에 대해",
+      kinds: ["acm_instance"],
+    },
     evidenceFields: [
       { id: "E.Info.AUM-2-2.AuthenticationMechanism", scope: "per_requirement", dependsOnAnswer: { nodeId: "DN-1", answer: "yes" }, required: true, multiline: true, group_ko: "2요소 인증 메커니즘", group_en: "Two-factor Authentication Mechanism", prompt_ko: "네트워크 상 사용자 인터페이스를 통한 특별 카테고리 개인정보 접근에 사용되는 인증 메커니즘 설명", prompt_en: "Authentication mechanism used for accessing special-category PII via user interfaces over network interfaces" },
       { id: "E.Info.AUM-2-2.AuthenticationMechanism.AuthFactor", scope: "per_requirement", dependsOnAnswer: { nodeId: "DN-1", answer: "yes" }, required: true, multiline: true, group_ko: "2요소 인증 메커니즘", group_en: "Two-factor Authentication Mechanism", prompt_ko: "사용되는 인증자 및 카테고리 (지식·소유·고유성 중 2개 이상)", prompt_en: "Authenticators and their categories (at least 2 of knowledge, possession, inherence)" },
@@ -400,10 +404,10 @@ export const P2_REQUIREMENTS: DTRequirement[] = [
     requirementText_en: "If factory default passwords are used by an authentication mechanism required by AUM-1, they shall be unique per equipment and follow best practice for strength, or be enforced to be changed by the user before or on first use.",
     requirementText_ko: "AUM-1에서 요구되는 인증 메커니즘이 공장 기본 비밀번호를 사용하는 경우, 비밀번호는 기기별 고유 + 모범 사례 강도, 또는 최초 사용 전·직후 사용자 변경 강제 중 하나를 충족해야 한다.",
     iterateOver: {
-      description_en: "For each ACM registered in ACM-2",
-      description_ko: "ACM-2에서 등록된 각 ACM에 대해",
-      kinds: ["acm_instance"],
-      metadataIn: { field: "password_type", values: ["factory_default"] },
+      description_en: "For each authenticator using a factory default password",
+      description_ko: "공장 기본 비밀번호를 사용하는 각 인증자에 대해",
+      kinds: ["authenticator_instance"],
+      metadataIn: { field: "passwordSubtype", values: ["factory_default"] },
     },
     evidenceFields: [
       { id: "E.Info.AUM-5-1.AUM", scope: "per_asset", required: true, multiline: true, group_ko: "인증 메커니즘 (공장 기본 비밀번호)", group_en: "AUM (Factory Default Password)", prompt_ko: "공장 기본 비밀번호를 사용하는 이 인증 메커니즘 설명", prompt_en: "Description of this authentication mechanism using factory default passwords" },
@@ -428,10 +432,10 @@ export const P2_REQUIREMENTS: DTRequirement[] = [
     requirementText_en: "Non-factory-default passwords used by AUM-1 mechanisms shall be enforced to be set by the user before network connection, defined by an authorized entity in a limited-access network, or equipment-generated with best-practice strength and only shared within such a network.",
     requirementText_ko: "AUM-1에서 요구되는 인증 메커니즘의 공장 기본 외 비밀번호는 네트워크 연결 전 사용자 설정 강제, 접근이 제한된 네트워크 내 인가된 엔티티 정의, 또는 기기가 모범 사례 강도로 생성하여 해당 네트워크 내에서만 전달 중 하나를 충족해야 한다.",
     iterateOver: {
-      description_en: "For each ACM registered in ACM-2",
-      description_ko: "ACM-2에서 등록된 각 ACM에 대해",
-      kinds: ["acm_instance"],
-      metadataIn: { field: "password_type", values: ["user_set"] },
+      description_en: "For each authenticator using a user-set (non-factory-default) password",
+      description_ko: "사용자 설정 비밀번호(공장 기본 아님)를 사용하는 각 인증자에 대해",
+      kinds: ["authenticator_instance"],
+      metadataIn: { field: "passwordSubtype", values: ["user_set"] },
     },
     evidenceFields: [
       { id: "E.Info.AUM-5-2.AUM", scope: "per_asset", required: true, multiline: true, group_ko: "인증 메커니즘 (공장 기본 외 비밀번호)", group_en: "AUM (Non-factory Default Password)", prompt_ko: "공장 기본이 아닌 비밀번호를 사용하는 이 인증 메커니즘 설명", prompt_en: "Description of this authentication mechanism using non-factory default passwords" },
@@ -456,10 +460,10 @@ export const P2_REQUIREMENTS: DTRequirement[] = [
     requirementText_en: "Authentication mechanisms required by AUM-1 must be resilient against brute-force attacks.",
     requirementText_ko: "AUM-1에서 요구되는 인증 메커니즘은 무차별 대입 공격에 대한 복원력을 가져야 한다.",
     iterateOver: {
-      description_en: "For each ACM registered in ACM-2",
-      description_ko: "ACM-2에서 등록된 각 ACM에 대해",
-      kinds: ["acm_instance"],
-      metadataIn: { field: "password_type", values: ["factory_default", "user_set"] },
+      description_en: "For each authenticator using password-based authentication",
+      description_ko: "비밀번호 기반 인증을 사용하는 각 인증자에 대해",
+      kinds: ["authenticator_instance"],
+      metadataIn: { field: "authType", values: ["password"] },
     },
     evidenceFields: [
       { id: "E.Info.AUM-6.AUM", scope: "per_asset", required: true, multiline: true, group_ko: "인증 메커니즘", group_en: "Authentication Mechanism", prompt_ko: "AUM-1-1/AUM-1-2가 요구하는 이 인증 메커니즘 설명", prompt_en: "Description of this authentication mechanism required by AUM-1-1/AUM-1-2" },

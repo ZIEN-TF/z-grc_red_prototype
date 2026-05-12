@@ -18,7 +18,6 @@ import {
   createAcmInstance,
   updateAcmInstance,
   deleteAcmInstance,
-  type AcmPasswordType,
 } from "@/app/actions";
 
 type AcmInstance = {
@@ -27,7 +26,6 @@ type AcmInstance = {
   interfaceNetwork: boolean;
   interfaceUser: boolean;
   interfaceMachine: boolean;
-  passwordType: AcmPasswordType;
 };
 
 type SaveState = "idle" | "saving" | "saved" | "error";
@@ -60,7 +58,6 @@ export function AcmInstancePanel({
       interfaceNetwork: false,
       interfaceUser: false,
       interfaceMachine: false,
-      passwordType: "",
     };
     try {
       const res = await createAcmInstance({
@@ -69,7 +66,6 @@ export function AcmInstancePanel({
         interfaceNetwork: false,
         interfaceUser: false,
         interfaceMachine: false,
-        passwordType: "",
       });
       setItems((prev) => [...prev, { ...draft, id: res.id }]);
     } catch (err) {
@@ -168,7 +164,6 @@ function AcmRow({
           interfaceNetwork: next.interfaceNetwork,
           interfaceUser: next.interfaceUser,
           interfaceMachine: next.interfaceMachine,
-          passwordType: next.passwordType,
         });
         setState("saved");
         setTimeout(() => setState("idle"), 1400);
@@ -260,29 +255,6 @@ function AcmRow({
           onChange={(v) => onInterfaceToggle("interfaceMachine", v)}
           disabled={readOnly || pending}
         />
-      </div>
-      <div className="mt-2 flex flex-wrap items-center gap-2 pl-1 text-xs">
-        <span className="text-muted-foreground">비밀번호 유형:</span>
-        <select
-          value={item.passwordType}
-          onChange={(e) => {
-            const v = e.target.value as AcmPasswordType;
-            const next = { ...item, passwordType: v };
-            onPatch({ passwordType: v });
-            commit(next);
-          }}
-          disabled={readOnly || pending}
-          className="rounded-md border bg-background px-2 py-1 text-xs disabled:opacity-60"
-        >
-          <option value="">— 선택 —</option>
-          <option value="factory_default">공장 기본 비밀번호</option>
-          <option value="user_set">사용자 설정 비밀번호 (공장 기본 아님)</option>
-          <option value="third_party">타사 솔루션 사용 (타사 로그인 비밀번호)</option>
-          <option value="none">비밀번호 미사용 (생체·토큰·인증서 등)</option>
-        </select>
-        <span className="text-[10px] text-muted-foreground">
-          AUM-5-1은 "공장 기본", AUM-5-2는 "사용자 설정"일 때만 평가. AUM-6(무차별 대입 방어)는 비밀번호 기반(공장 기본·사용자 설정)일 때만 평가. "타사 솔루션"과 "비밀번호 미사용"은 AUM-5-1/5-2/6 모두 제외.
-        </span>
       </div>
     </div>
   );
