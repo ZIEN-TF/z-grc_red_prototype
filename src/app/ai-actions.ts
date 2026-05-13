@@ -430,37 +430,42 @@ async function fillSingleDTRequirement(
   let saved = 0;
   let iterationsAnswered = 0;
 
-  await prisma.$transaction(async (tx) => {
-    for (const it of result.iterations) {
-      if (!validKeySet.has(it.assetKey)) continue;
-      const assetId = it.assetKey === "__global__" ? null : it.assetKey;
+  for (const it of result.iterations) {
+    if (!validKeySet.has(it.assetKey)) continue;
+    const assetId = it.assetKey === "__global__" ? null : it.assetKey;
 
-      const reviewedExisting = await tx.dTAnswer.findFirst({
+    let rowsForThisIter = 0;
+    const seenNodeIds = new Set<string>();
+    for (const ans of it.answers) {
+      if (!validNodeIds.has(ans.nodeId)) continue;
+      if (seenNodeIds.has(ans.nodeId)) continue;
+      seenNodeIds.add(ans.nodeId);
+
+      // Find by primary key (id) to avoid null-in-where issues with compound unique key
+      const existing = await prisma.dTAnswer.findFirst({
         where: {
           projectId,
           requirementId: requirement.id,
-          assetId,
-          userReviewed: true,
+          nodeId: ans.nodeId,
+          ...(assetId === null ? { assetId: null } : { assetId }),
         },
-      });
-      if (reviewedExisting) continue;
-
-      await tx.dTAnswer.deleteMany({
-        where: {
-          projectId,
-          requirementId: requirement.id,
-          assetId,
-          userReviewed: false,
-        },
+        select: { id: true, userReviewed: true },
       });
 
-      let rowsForThisIter = 0;
-      const seenNodeIds = new Set<string>();
-      for (const ans of it.answers) {
-        if (!validNodeIds.has(ans.nodeId)) continue;
-        if (seenNodeIds.has(ans.nodeId)) continue;
-        seenNodeIds.add(ans.nodeId);
-        await tx.dTAnswer.create({
+      if (existing) {
+        if (existing.userReviewed) continue;
+        await prisma.dTAnswer.update({
+          where: { id: existing.id },
+          data: {
+            answer: ans.answer,
+            notes: ans.reasoning,
+            aiGenerated: true,
+            aiGeneratedAt: now,
+            userReviewed: false,
+          },
+        });
+      } else {
+        await prisma.dTAnswer.create({
           data: {
             projectId,
             assetId,
@@ -474,12 +479,12 @@ async function fillSingleDTRequirement(
             userReviewed: false,
           },
         });
-        saved++;
-        rowsForThisIter++;
       }
-      if (rowsForThisIter > 0) iterationsAnswered++;
+      saved++;
+      rowsForThisIter++;
     }
-  });
+    if (rowsForThisIter > 0) iterationsAnswered++;
+  }
 
   return { saved, iterationsAnswered };
 }
