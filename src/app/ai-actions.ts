@@ -430,22 +430,24 @@ async function fillSingleDTRequirement(
   let saved = 0;
   let iterationsAnswered = 0;
 
+  // Fetch ALL existing answers for this (project, req) once before the loop.
+  // Key: `${assetId ?? ""}::${nodeId}` — avoids null-equality issues entirely
+  // (better-sqlite3 may return undefined for NULL columns, so === null is unreliable).
+  const allExistingRows = await prisma.dTAnswer.findMany({
+    where: { projectId, requirementId: requirement.id },
+    select: { id: true, assetId: true, nodeId: true, userReviewed: true },
+  });
+  const existingByKey = new Map(
+    allExistingRows.map((r) => [
+      `${r.assetId ?? ""}::${r.nodeId}`,
+      { id: r.id, userReviewed: Boolean(r.userReviewed) },
+    ]),
+  );
+
   for (const it of result.iterations) {
     if (!validKeySet.has(it.assetKey)) continue;
     const assetId = it.assetKey === "__global__" ? null : it.assetKey;
-
-    // Fetch ALL existing answers for this (project, req) without filtering on
-    // assetId — the better-sqlite3 adapter generates `= NULL` (never true) for
-    // null fields in WHERE, so we filter in JS instead.
-    const existingRows = await prisma.dTAnswer.findMany({
-      where: { projectId, requirementId: requirement.id },
-      select: { id: true, assetId: true, nodeId: true, userReviewed: true },
-    });
-    const existingByNodeId = new Map(
-      existingRows
-        .filter((r) => r.assetId === assetId)
-        .map((r) => [r.nodeId, r]),
-    );
+    const assetPrefix = assetId ?? "";
 
     let rowsForThisIter = 0;
     const seenNodeIds = new Set<string>();
@@ -454,7 +456,8 @@ async function fillSingleDTRequirement(
       if (seenNodeIds.has(ans.nodeId)) continue;
       seenNodeIds.add(ans.nodeId);
 
-      const existing = existingByNodeId.get(ans.nodeId);
+      const lookupKey = `${assetPrefix}::${ans.nodeId}`;
+      const existing = existingByKey.get(lookupKey);
       if (existing) {
         if (existing.userReviewed) continue;
         await prisma.dTAnswer.update({
@@ -467,21 +470,36 @@ async function fillSingleDTRequirement(
             userReviewed: false,
           },
         });
+        existingByKey.set(lookupKey, { id: existing.id, userReviewed: false });
       } else {
-        await prisma.dTAnswer.create({
-          data: {
-            projectId,
-            assetId,
-            mechanismCode: requirement.mechanismCode,
-            requirementId: requirement.id,
-            nodeId: ans.nodeId,
-            answer: ans.answer,
-            notes: ans.reasoning,
-            aiGenerated: true,
-            aiGeneratedAt: now,
-            userReviewed: false,
-          },
-        });
+        try {
+          const created = await prisma.dTAnswer.create({
+            data: {
+              projectId,
+              assetId,
+              mechanismCode: requirement.mechanismCode,
+              requirementId: requirement.id,
+              nodeId: ans.nodeId,
+              answer: ans.answer,
+              notes: ans.reasoning,
+              aiGenerated: true,
+              aiGeneratedAt: now,
+              userReviewed: false,
+            },
+          });
+          // Register in map to prevent duplicate create within same run
+          existingByKey.set(lookupKey, { id: created.id, userReviewed: false });
+        } catch (e: unknown) {
+          // P2002 = unique constraint — row was created by a concurrent call; skip
+          if (
+            e instanceof Error &&
+            "code" in e &&
+            (e as { code: string }).code === "P2002"
+          ) {
+            continue;
+          }
+          throw e;
+        }
       }
       saved++;
       rowsForThisIter++;
