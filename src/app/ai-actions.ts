@@ -455,8 +455,11 @@ async function fillSingleDTRequirement(
       });
 
       let rowsForThisIter = 0;
+      const seenNodeIds = new Set<string>();
       for (const ans of it.answers) {
         if (!validNodeIds.has(ans.nodeId)) continue;
+        if (seenNodeIds.has(ans.nodeId)) continue;
+        seenNodeIds.add(ans.nodeId);
         await tx.dTAnswer.create({
           data: {
             projectId,
