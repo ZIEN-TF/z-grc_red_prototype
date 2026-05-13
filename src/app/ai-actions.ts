@@ -434,6 +434,19 @@ async function fillSingleDTRequirement(
     if (!validKeySet.has(it.assetKey)) continue;
     const assetId = it.assetKey === "__global__" ? null : it.assetKey;
 
+    // Fetch ALL existing answers for this (project, req) without filtering on
+    // assetId — the better-sqlite3 adapter generates `= NULL` (never true) for
+    // null fields in WHERE, so we filter in JS instead.
+    const existingRows = await prisma.dTAnswer.findMany({
+      where: { projectId, requirementId: requirement.id },
+      select: { id: true, assetId: true, nodeId: true, userReviewed: true },
+    });
+    const existingByNodeId = new Map(
+      existingRows
+        .filter((r) => r.assetId === assetId)
+        .map((r) => [r.nodeId, r]),
+    );
+
     let rowsForThisIter = 0;
     const seenNodeIds = new Set<string>();
     for (const ans of it.answers) {
@@ -441,17 +454,7 @@ async function fillSingleDTRequirement(
       if (seenNodeIds.has(ans.nodeId)) continue;
       seenNodeIds.add(ans.nodeId);
 
-      // Find by primary key (id) to avoid null-in-where issues with compound unique key
-      const existing = await prisma.dTAnswer.findFirst({
-        where: {
-          projectId,
-          requirementId: requirement.id,
-          nodeId: ans.nodeId,
-          ...(assetId === null ? { assetId: null } : { assetId }),
-        },
-        select: { id: true, userReviewed: true },
-      });
-
+      const existing = existingByNodeId.get(ans.nodeId);
       if (existing) {
         if (existing.userReviewed) continue;
         await prisma.dTAnswer.update({
