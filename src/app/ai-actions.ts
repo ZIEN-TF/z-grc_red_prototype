@@ -430,19 +430,47 @@ async function fillSingleDTRequirement(
   let saved = 0;
   let iterationsAnswered = 0;
 
-  // Fetch ALL existing answers for this (project, req) once before the loop.
-  // Key: `${assetId ?? ""}::${nodeId}` — avoids null-equality issues entirely
-  // (better-sqlite3 may return undefined for NULL columns, so === null is unreliable).
-  const allExistingRows = await prisma.dTAnswer.findMany({
+  // ── Step A: load all existing rows for this (project, req) ─────────────────
+  // No assetId in WHERE — better-sqlite3 generates `= NULL` (always false) for null.
+  const allExisting = await prisma.dTAnswer.findMany({
     where: { projectId, requirementId: requirement.id },
     select: { id: true, assetId: true, nodeId: true, userReviewed: true },
   });
-  const existingByKey = new Map(
-    allExistingRows.map((r) => [
-      `${r.assetId ?? ""}::${r.nodeId}`,
-      { id: r.id, userReviewed: Boolean(r.userReviewed) },
-    ]),
+
+  // Keys of user-reviewed rows: `${assetId ?? ""}::${nodeId}`
+  // ?? "" handles both null and undefined returned by the driver.
+  const reviewedKeys = new Set<string>(
+    allExisting
+      .filter((r) => Boolean(r.userReviewed))
+      .map((r) => `${r.assetId ?? ""}::${r.nodeId}`),
   );
+
+  // ── Step B: delete all unreviewed rows by their id list ────────────────────
+  // deleteMany with `id: { in: [...] }` never touches null in WHERE — safe.
+  const idsToDelete = allExisting
+    .filter((r) => !Boolean(r.userReviewed))
+    .map((r) => r.id);
+  if (idsToDelete.length > 0) {
+    await prisma.dTAnswer.deleteMany({ where: { id: { in: idsToDelete } } });
+  }
+
+  // ── Step C: build the create list ─────────────────────────────────────────
+  // createdKeys deduplicates entries when the AI returns the same (asset, node)
+  // across multiple iterations in its response.
+  const createdKeys = new Set<string>();
+  type CreateRow = {
+    projectId: string;
+    assetId: string | null;
+    mechanismCode: string;
+    requirementId: string;
+    nodeId: string;
+    answer: string;
+    notes: string | null;
+    aiGenerated: boolean;
+    aiGeneratedAt: Date;
+    userReviewed: boolean;
+  };
+  const toCreate: CreateRow[] = [];
 
   for (const it of result.iterations) {
     if (!validKeySet.has(it.assetKey)) continue;
@@ -456,55 +484,34 @@ async function fillSingleDTRequirement(
       if (seenNodeIds.has(ans.nodeId)) continue;
       seenNodeIds.add(ans.nodeId);
 
-      const lookupKey = `${assetPrefix}::${ans.nodeId}`;
-      const existing = existingByKey.get(lookupKey);
-      if (existing) {
-        if (existing.userReviewed) continue;
-        await prisma.dTAnswer.update({
-          where: { id: existing.id },
-          data: {
-            answer: ans.answer,
-            notes: ans.reasoning,
-            aiGenerated: true,
-            aiGeneratedAt: now,
-            userReviewed: false,
-          },
-        });
-        existingByKey.set(lookupKey, { id: existing.id, userReviewed: false });
-      } else {
-        try {
-          const created = await prisma.dTAnswer.create({
-            data: {
-              projectId,
-              assetId,
-              mechanismCode: requirement.mechanismCode,
-              requirementId: requirement.id,
-              nodeId: ans.nodeId,
-              answer: ans.answer,
-              notes: ans.reasoning,
-              aiGenerated: true,
-              aiGeneratedAt: now,
-              userReviewed: false,
-            },
-          });
-          // Register in map to prevent duplicate create within same run
-          existingByKey.set(lookupKey, { id: created.id, userReviewed: false });
-        } catch (e: unknown) {
-          // P2002 = unique constraint — row was created by a concurrent call; skip
-          if (
-            e instanceof Error &&
-            "code" in e &&
-            (e as { code: string }).code === "P2002"
-          ) {
-            continue;
-          }
-          throw e;
-        }
-      }
+      const key = `${assetPrefix}::${ans.nodeId}`;
+      if (reviewedKeys.has(key)) continue; // keep user-reviewed rows intact
+      if (createdKeys.has(key)) continue;  // skip AI-response duplicates
+      createdKeys.add(key);
+
+      toCreate.push({
+        projectId,
+        assetId,
+        mechanismCode: requirement.mechanismCode,
+        requirementId: requirement.id,
+        nodeId: ans.nodeId,
+        answer: ans.answer,
+        notes: ans.reasoning ?? null,
+        aiGenerated: true,
+        aiGeneratedAt: now,
+        userReviewed: false,
+      });
       saved++;
       rowsForThisIter++;
     }
     if (rowsForThisIter > 0) iterationsAnswered++;
+  }
+
+  // ── Step D: batch insert the new rows ─────────────────────────────────────
+  // After the delete above, no existing unreviewed rows remain for this req,
+  // so createMany will not hit any unique constraint.
+  if (toCreate.length > 0) {
+    await prisma.dTAnswer.createMany({ data: toCreate });
   }
 
   return { saved, iterationsAnswered };
