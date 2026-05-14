@@ -1000,6 +1000,7 @@ function computeVisibleRequirementIds(
 export async function aiFillDTInit(projectId: string): Promise<{
   acmsCreated: number;
   authsCreated: number;
+  sumsCreated: number;
   // Backward-compat: the unique requirement IDs in the iteration list.
   requirementIds: string[];
   // Flat list of (requirementId, assetKey) pairs to process. Each pair is
@@ -1024,11 +1025,15 @@ export async function aiFillDTInit(projectId: string): Promise<{
   const authCount = ctx.parsedAssets.filter(
     (a) => a.kind === "authenticator_instance",
   ).length;
+  const sumCount = ctx.parsedAssets.filter(
+    (a) => a.kind === "sum_instance",
+  ).length;
 
   let acmsCreated = 0;
   let authsCreated = 0;
+  let sumsCreated = 0;
 
-  if (acmCount === 0 || authCount === 0) {
+  if (acmCount === 0 || authCount === 0 || sumCount === 0) {
     const assetSummary = buildAssetSummary(ctx.parsedAssets);
     const inst = await runAIWithAttachments<InstancesAIResult>({
       systemPrompt: INSTANCES_SYSTEM_PROMPT,
@@ -1100,7 +1105,27 @@ export async function aiFillDTInit(projectId: string): Promise<{
       }
     }
 
-    if (acmsCreated > 0 || authsCreated > 0) {
+    if (sumCount === 0) {
+      // sum_instance has no metadata fields (see asset-kinds.ts). It's a
+      // pure iteration marker — SUM-2 / SUM-3 walk one DT per instance.
+      for (const sum of inst.sums) {
+        const trimmedName = sum.name.trim() || "(이름 없음)";
+        await prisma.asset.create({
+          data: {
+            projectId,
+            kind: "sum_instance",
+            name: trimmedName,
+            metadata: JSON.stringify({}),
+            aiGenerated: true,
+            aiGeneratedAt: now,
+            userReviewed: false,
+          },
+        });
+        sumsCreated++;
+      }
+    }
+
+    if (acmsCreated > 0 || authsCreated > 0 || sumsCreated > 0) {
       const refreshed = await prisma.asset.findMany({
         where: { projectId },
       });
@@ -1139,13 +1164,13 @@ export async function aiFillDTInit(projectId: string): Promise<{
     }
   }
 
-  // Revalidate the assets pages so newly-created ACM/auth instances appear.
-  if (acmsCreated > 0 || authsCreated > 0) {
+  // Revalidate the assets pages so newly-created instances appear.
+  if (acmsCreated > 0 || authsCreated > 0 || sumsCreated > 0) {
     revalidatePath(`/projects/${projectId}/assets`);
     revalidatePath(`/projects/${projectId}/assets/review`);
   }
 
-  return { acmsCreated, authsCreated, requirementIds, iterations };
+  return { acmsCreated, authsCreated, sumsCreated, requirementIds, iterations };
 }
 
 // Step 2 of the chunked DT bulk fill — processes exactly one (requirement,
@@ -1281,18 +1306,22 @@ export async function aiFillDTAll(projectId: string) {
     );
   }
 
-  // ── Step 1: Make sure ACM and authenticator instances exist ─────
+  // ── Step 1: Make sure ACM, authenticator, and SUM instances exist ─────
   const acmCount = ctx.parsedAssets.filter(
     (a) => a.kind === "acm_instance",
   ).length;
   const authCount = ctx.parsedAssets.filter(
     (a) => a.kind === "authenticator_instance",
   ).length;
+  const sumCount = ctx.parsedAssets.filter(
+    (a) => a.kind === "sum_instance",
+  ).length;
 
   let acmsCreated = 0;
   let authsCreated = 0;
+  let sumsCreated = 0;
 
-  if (acmCount === 0 || authCount === 0) {
+  if (acmCount === 0 || authCount === 0 || sumCount === 0) {
     const assetSummary = buildAssetSummary(ctx.parsedAssets);
     const inst = await runAIWithAttachments<InstancesAIResult>({
       systemPrompt: INSTANCES_SYSTEM_PROMPT,
@@ -1366,7 +1395,24 @@ export async function aiFillDTAll(projectId: string) {
       }
     }
 
-    if (acmsCreated > 0 || authsCreated > 0) {
+    if (sumCount === 0) {
+      for (const sum of inst.sums) {
+        await prisma.asset.create({
+          data: {
+            projectId,
+            kind: "sum_instance",
+            name: sum.name.trim() || "(이름 없음)",
+            metadata: JSON.stringify({}),
+            aiGenerated: true,
+            aiGeneratedAt: now,
+            userReviewed: false,
+          },
+        });
+        sumsCreated++;
+      }
+    }
+
+    if (acmsCreated > 0 || authsCreated > 0 || sumsCreated > 0) {
       // Reload assets so subsequent DT iterations see the new instances.
       const refreshed = await prisma.asset.findMany({
         where: { projectId },
@@ -1434,6 +1480,7 @@ export async function aiFillDTAll(projectId: string) {
   return {
     acmsCreated,
     authsCreated,
+    sumsCreated,
     reqsProcessed,
     reqsSkipped,
     totalSaved,
