@@ -109,6 +109,7 @@ export function AIFillDTAllButton({
         const summary = [
           init.acmsCreated > 0 && `ACM ${init.acmsCreated}개 추가`,
           init.authsCreated > 0 && `인증자 ${init.authsCreated}개 추가`,
+          init.authsMigrated > 0 && `인증자 ${init.authsMigrated}개 메타데이터 보정`,
           init.sumsCreated > 0 && `업데이트 메커니즘 ${init.sumsCreated}개 추가`,
           completedReqIds.size > 0 && `${completedReqIds.size}개 요구사항 처리`,
           iterationsDone > 0 && `${iterationsDone}개 평가 단위`,

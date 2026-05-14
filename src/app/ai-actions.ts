@@ -997,10 +997,59 @@ function computeVisibleRequirementIds(
 // Splitting the bulk fill into init + per-iteration calls keeps each
 // server-action invocation under proxy timeouts (Cloudflare's 100s limit in
 // particular). The total amount of OpenAI work is unchanged.
+// Migrate any existing authenticator_instance assets that were created by
+// an older version with snake_case metadata keys (auth_type,
+// password_subtype) to the camelCase keys (authType, passwordSubtype) that
+// asset-kinds.ts declares and that the DT iterateOver filters depend on.
+// Without this, requirements like AUM-5-2 and AUM-6 stay stuck on N/A
+// forever because the filter never matches the stale keys, and the bulk
+// init won't recreate the rows since authCount > 0.
+async function migrateStaleAuthenticatorMetadata(projectId: string): Promise<number> {
+  const rows = await prisma.asset.findMany({
+    where: { projectId, kind: "authenticator_instance" },
+    select: { id: true, metadata: true },
+  });
+  let migrated = 0;
+  for (const r of rows) {
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(r.metadata || "{}");
+    } catch {
+      continue;
+    }
+    const hasSnake =
+      "auth_type" in parsed || "password_subtype" in parsed;
+    if (!hasSnake) continue;
+    const next: Record<string, unknown> = { ...parsed };
+    if ("auth_type" in next && !("authType" in next)) {
+      next.authType = next.auth_type;
+    }
+    if ("password_subtype" in next && !("passwordSubtype" in next)) {
+      next.passwordSubtype = next.password_subtype;
+    }
+    delete next.auth_type;
+    delete next.password_subtype;
+    // Backfill empty subtype for password authenticators to match the same
+    // default the fresh-creation path applies.
+    if (next.authType === "password" && !next.passwordSubtype) {
+      next.passwordSubtype = "user_set";
+    }
+    await prisma.asset.update({
+      where: { id: r.id },
+      data: { metadata: JSON.stringify(next) },
+    });
+    migrated++;
+  }
+  return migrated;
+}
+
 export async function aiFillDTInit(projectId: string): Promise<{
   acmsCreated: number;
   authsCreated: number;
   sumsCreated: number;
+  // Number of pre-existing authenticator_instance rows whose stale
+  // snake_case metadata was migrated to camelCase in-place. 0 on most runs.
+  authsMigrated: number;
   // Backward-compat: the unique requirement IDs in the iteration list.
   requirementIds: string[];
   // Flat list of (requirementId, assetKey) pairs to process. Each pair is
@@ -1008,6 +1057,10 @@ export async function aiFillDTInit(projectId: string): Promise<{
   iterations: Array<{ requirementId: string; assetKey: string; label: string }>;
 }> {
   await assertProjectEditable(projectId);
+
+  // Run the metadata migration before reading ctx so the parsed view sees
+  // the corrected keys for downstream DT filtering.
+  const authsMigrated = await migrateStaleAuthenticatorMetadata(projectId);
 
   const ctx = await loadDTContext(projectId);
   if (!ctx.raw.screeningComplete) {
@@ -1177,12 +1230,19 @@ export async function aiFillDTInit(projectId: string): Promise<{
   }
 
   // Revalidate the assets pages so newly-created instances appear.
-  if (acmsCreated > 0 || authsCreated > 0 || sumsCreated > 0) {
+  if (acmsCreated > 0 || authsCreated > 0 || sumsCreated > 0 || authsMigrated > 0) {
     revalidatePath(`/projects/${projectId}/assets`);
     revalidatePath(`/projects/${projectId}/assets/review`);
   }
 
-  return { acmsCreated, authsCreated, sumsCreated, requirementIds, iterations };
+  return {
+    acmsCreated,
+    authsCreated,
+    sumsCreated,
+    authsMigrated,
+    requirementIds,
+    iterations,
+  };
 }
 
 // Step 2 of the chunked DT bulk fill — processes exactly one (requirement,
