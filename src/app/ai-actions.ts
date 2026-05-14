@@ -551,6 +551,207 @@ async function loadDTContext(projectId: string): Promise<SingleReqContext & {
   };
 }
 
+// Compute the list of DT requirement IDs that are visible/applicable for a
+// project given its screening answers and applicable standards. Shared by
+// aiFillDTInit and aiFillDTAll.
+function computeVisibleRequirementIds(
+  ctx: SingleReqContext & {
+    raw: { mechanismCandidates: string };
+  },
+): string[] {
+  const candidates: string[] =
+    ctx.raw.mechanismCandidates.length > 0
+      ? (JSON.parse(ctx.raw.mechanismCandidates) as string[])
+      : [];
+  const recomputed = evaluateScreening(ctx.screeningAnswers);
+  const finalCandidates =
+    recomputed.candidateMechanisms.length > 0
+      ? recomputed.candidateMechanisms
+      : candidates;
+  const finalStandards =
+    recomputed.applicableStandards.length > 0
+      ? recomputed.applicableStandards
+      : ctx.applicableStandards;
+
+  return DT_REQUIREMENTS.filter(
+    (r) =>
+      finalCandidates.includes(r.mechanismCode) &&
+      r.standards.some((s) => finalStandards.includes(s)) &&
+      evaluateRequirementApplicability(r, ctx.screeningAnswers).applies,
+  ).map((r) => r.id);
+}
+
+// Step 1 of the chunked DT bulk fill — does the heavy upfront work (loading
+// attachments, creating ACM/authenticator instances if missing) and returns
+// the list of requirement IDs the client should iterate over.
+//
+// Splitting the bulk fill into init + per-requirement calls keeps each
+// server-action invocation under proxy timeouts (Cloudflare's 100s limit in
+// particular). The total amount of OpenAI work is unchanged.
+export async function aiFillDTInit(projectId: string): Promise<{
+  acmsCreated: number;
+  authsCreated: number;
+  requirementIds: string[];
+}> {
+  await assertProjectEditable(projectId);
+
+  const ctx = await loadDTContext(projectId);
+  if (!ctx.raw.screeningComplete) {
+    throw new Error("먼저 스크리닝을 완료해 주세요.");
+  }
+  if (ctx.attachments.length === 0) {
+    throw new Error(
+      "AI가 참고할 첨부 파일이 없습니다. 프로젝트 첨부 파일을 먼저 업로드하세요.",
+    );
+  }
+
+  const acmCount = ctx.parsedAssets.filter(
+    (a) => a.kind === "acm_instance",
+  ).length;
+  const authCount = ctx.parsedAssets.filter(
+    (a) => a.kind === "authenticator_instance",
+  ).length;
+
+  let acmsCreated = 0;
+  let authsCreated = 0;
+
+  if (acmCount === 0 || authCount === 0) {
+    const assetSummary = buildAssetSummary(ctx.parsedAssets);
+    const inst = await runAIWithAttachments<InstancesAIResult>({
+      systemPrompt: INSTANCES_SYSTEM_PROMPT,
+      userPrompt: buildInstancesUserPrompt(
+        ctx.project,
+        ctx.screeningAnswers,
+        assetSummary,
+      ),
+      attachments: ctx.attachments,
+      jsonSchema: INSTANCES_JSON_SCHEMA as unknown as Record<string, unknown>,
+      schemaName: "instances",
+    });
+
+    const now = new Date();
+    const acmIdByName = new Map<string, string>();
+
+    if (acmCount === 0) {
+      for (const a of inst.acms) {
+        const trimmedName = a.name.trim() || "(이름 없음)";
+        const meta = JSON.stringify({
+          interface_network: a.interfaceNetwork ? "yes" : "no",
+          interface_user: a.interfaceUser ? "yes" : "no",
+          interface_machine: a.interfaceMachine ? "yes" : "no",
+          acm_type: a.acmType,
+        });
+        const row = await prisma.asset.create({
+          data: {
+            projectId,
+            kind: "acm_instance",
+            name: trimmedName,
+            metadata: meta,
+            aiGenerated: true,
+            aiGeneratedAt: now,
+            userReviewed: false,
+          },
+        });
+        acmIdByName.set(trimmedName, row.id);
+        acmsCreated++;
+      }
+    } else {
+      for (const a of ctx.parsedAssets.filter(
+        (x) => x.kind === "acm_instance",
+      )) {
+        acmIdByName.set(a.name, a.id);
+      }
+    }
+
+    if (authCount === 0) {
+      for (const auth of inst.authenticators) {
+        const parentId = acmIdByName.get(auth.acmName.trim());
+        if (!parentId) continue;
+        const meta = JSON.stringify({
+          acm_id: parentId,
+          auth_type: auth.authType,
+          password_subtype: auth.passwordSubtype,
+        });
+        await prisma.asset.create({
+          data: {
+            projectId,
+            kind: "authenticator_instance",
+            name: auth.name.trim() || "(이름 없음)",
+            metadata: meta,
+            aiGenerated: true,
+            aiGeneratedAt: now,
+            userReviewed: false,
+          },
+        });
+        authsCreated++;
+      }
+    }
+
+    if (acmsCreated > 0 || authsCreated > 0) {
+      const refreshed = await prisma.asset.findMany({
+        where: { projectId },
+      });
+      ctx.parsedAssets = parseAssetsForAI(refreshed);
+    }
+  }
+
+  const requirementIds = computeVisibleRequirementIds(ctx);
+
+  // Revalidate the assets pages so newly-created ACM/auth instances appear.
+  if (acmsCreated > 0 || authsCreated > 0) {
+    revalidatePath(`/projects/${projectId}/assets`);
+    revalidatePath(`/projects/${projectId}/assets/review`);
+  }
+
+  return { acmsCreated, authsCreated, requirementIds };
+}
+
+// Step 2 of the chunked DT bulk fill — processes exactly one DT requirement.
+// Designed to be called from the client in a loop after aiFillDTInit returns
+// the list of requirement IDs. Each call typically completes in well under
+// the proxy timeout window.
+export async function aiFillDTRequirement(
+  projectId: string,
+  requirementId: string,
+): Promise<{ saved: number; iterationsAnswered: number; skipped: boolean }> {
+  await assertProjectEditable(projectId);
+
+  const req = requirementById(requirementId);
+  if (!req) throw new Error(`알 수 없는 DT 요구사항: ${requirementId}`);
+
+  const ctx = await loadDTContext(projectId);
+  if (!ctx.raw.screeningComplete) {
+    throw new Error("먼저 스크리닝을 완료해 주세요.");
+  }
+  if (ctx.attachments.length === 0) {
+    throw new Error("AI가 참고할 첨부 파일이 없습니다.");
+  }
+
+  // Use the same applicability filter as the bulk path so we never accept a
+  // requirement that should not have been listed.
+  const recomputed = evaluateScreening(ctx.screeningAnswers);
+  const finalStandards =
+    recomputed.applicableStandards.length > 0
+      ? recomputed.applicableStandards
+      : ctx.applicableStandards;
+
+  const r = await fillSingleDTRequirement(projectId, req, {
+    project: ctx.project,
+    parsedAssets: ctx.parsedAssets,
+    screeningAnswers: ctx.screeningAnswers,
+    applicableStandards: finalStandards,
+    attachments: ctx.attachments,
+  });
+
+  revalidatePath(`/projects/${projectId}/dt/${requirementId}`);
+
+  return {
+    saved: r.saved,
+    iterationsAnswered: r.iterationsAnswered,
+    skipped: r.iterationsAnswered === 0,
+  };
+}
+
 // ── Bulk DT AI fill — instances + every visible requirement ──────
 export async function aiFillDTAll(projectId: string) {
   await assertProjectEditable(projectId);
