@@ -365,6 +365,148 @@ type SingleReqContext = {
   attachments: any[];
 };
 
+// Server-side DT tree walker. Given a map of answered nodes, returns:
+//   - reachedLeaf: did we walk to an outcome (pass/fail/not_applicable)?
+//   - missingNodeId: the first node on the path that lacks an answer (or
+//     undefined if path is fully resolved or a cycle was detected).
+//   - onPathAnswers: only the answers that actually lie on the resolved path
+//     (off-path AI answers are dropped).
+function walkDTPath(
+  requirement: DTRequirement,
+  answers: Map<string, { answer: "yes" | "no"; reasoning: string }>,
+): {
+  reachedLeaf: boolean;
+  missingNodeId: string | undefined;
+  onPathAnswers: Array<{ nodeId: string; answer: "yes" | "no"; reasoning: string }>;
+} {
+  const onPathAnswers: Array<{ nodeId: string; answer: "yes" | "no"; reasoning: string }> = [];
+  const visited = new Set<string>();
+  let currentId = requirement.rootNodeId;
+  while (true) {
+    const node = requirement.nodes[currentId];
+    if (!node) {
+      // Malformed DT — bail out, treat as no leaf.
+      return { reachedLeaf: false, missingNodeId: undefined, onPathAnswers };
+    }
+    if (visited.has(currentId)) {
+      // Cycle guard.
+      return { reachedLeaf: false, missingNodeId: undefined, onPathAnswers };
+    }
+    visited.add(currentId);
+    const ans = answers.get(currentId);
+    if (!ans) {
+      return { reachedLeaf: false, missingNodeId: currentId, onPathAnswers };
+    }
+    onPathAnswers.push({ nodeId: currentId, answer: ans.answer, reasoning: ans.reasoning });
+    const branch = ans.answer === "yes" ? node.yes : node.no;
+    if ("outcome" in branch) {
+      return { reachedLeaf: true, missingNodeId: undefined, onPathAnswers };
+    }
+    currentId = branch.goto;
+  }
+}
+
+// Ask the AI for the answer to a SINGLE DT node. Used to fill in nodes that
+// the bundled "walk the whole tree" call dropped. Schema restricts the nodeId
+// enum so the model can't return a wrong node.
+async function aiAnswerSingleDTNode(opts: {
+  requirement: DTRequirement;
+  iteration: { assetKey: string; label: string; metadata: Record<string, string> };
+  nodeId: string;
+  prior: Array<{ nodeId: string; answer: "yes" | "no"; reasoning: string }>;
+  ctx: SingleReqContext;
+  assetSummary: string;
+}): Promise<{ answer: "yes" | "no"; reasoning: string }> {
+  const { requirement, iteration, nodeId, prior, ctx, assetSummary } = opts;
+  const node = requirement.nodes[nodeId];
+  if (!node) throw new Error(`알 수 없는 DT 노드: ${nodeId}`);
+
+  const priorBlock =
+    prior.length === 0
+      ? "(없음 — 이 노드가 시작 노드입니다)"
+      : prior
+          .map((a, i) => {
+            const n = requirement.nodes[a.nodeId];
+            return `${i + 1}. [${a.nodeId}] ${n?.text_ko ?? ""} → ${a.answer.toUpperCase()}\n   근거: ${a.reasoning}`;
+          })
+          .join("\n");
+
+  const yesBranch =
+    "outcome" in node.yes
+      ? `→ 결과: ${node.yes.outcome.toUpperCase()}`
+      : `→ 다음 노드: ${node.yes.goto}`;
+  const noBranch =
+    "outcome" in node.no
+      ? `→ 결과: ${node.no.outcome.toUpperCase()}`
+      : `→ 다음 노드: ${node.no.goto}`;
+
+  const productInfo = [
+    `제품명: ${ctx.project.name}`,
+    `제조사: ${ctx.project.manufacturer}`,
+    ctx.project.productType ? `제품 유형: ${ctx.project.productType}` : null,
+    ctx.project.productDescription
+      ? `제품 설명:\n${ctx.project.productDescription}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const userPrompt = `다음 DT 노드에 대해 yes/no로 답하세요. 이전 노드 답변은 이미 결정되었으므로 그 흐름에 정합하게 답해야 합니다.
+
+=== 제품 정보 ===
+${productInfo}
+
+=== 자산 인벤토리 (요약) ===
+${assetSummary || "(자산 없음)"}
+
+=== 요구사항 ===
+ID: ${requirement.id} · ${requirement.clause}
+제목: ${requirement.title_ko}
+원문:
+${requirement.requirementText_ko}
+
+=== 현재 평가 단위 ===
+${iteration.label} (assetKey="${iteration.assetKey}")
+${Object.entries(iteration.metadata).map(([k, v]) => `- ${k}: ${v}`).join("\n")}
+
+=== 지금까지의 DT 답변 (이 평가 단위에서 이미 결정됨) ===
+${priorBlock}
+
+=== 답해야 하는 노드 ===
+[${nodeId}] ${node.text_ko}
+${node.hint_ko ? `힌트: ${node.hint_ko}` : ""}
+- YES ${yesBranch}
+- NO  ${noBranch}
+
+이 단일 노드에 대해서만 { nodeId, answer, reasoning } 형태로 답하세요.
+reasoning은 1~2문장 한국어 — 근거 + 판단을 적으세요.`;
+
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      nodeId: { type: "string", enum: [nodeId] },
+      answer: { type: "string", enum: ["yes", "no"] },
+      reasoning: { type: "string" },
+    },
+    required: ["nodeId", "answer", "reasoning"],
+  };
+
+  const res = await runAIWithAttachments<{
+    nodeId: string;
+    answer: "yes" | "no";
+    reasoning: string;
+  }>({
+    systemPrompt: DT_SYSTEM_PROMPT,
+    userPrompt,
+    attachments: ctx.attachments,
+    jsonSchema: schema,
+    schemaName: "dt_single_node",
+  });
+
+  return { answer: res.answer, reasoning: res.reasoning };
+}
+
 // Fill a single DT requirement using the shared project context. Returns
 // counts; saves rows directly to DB. Skips iterations the user already
 // reviewed, replaces unreviewed AI rows with fresh AI output.
@@ -407,23 +549,118 @@ async function fillSingleDTRequirement(
 
   if (iterations.length === 0) return { saved: 0, iterationsAnswered: 0 };
 
-  const validAssetKeys = iterations.map((it) => it.assetKey);
   const assetSummary = buildAssetSummary(ctx.parsedAssets);
 
-  const result = await runAIWithAttachments<DTAIResult>({
-    systemPrompt: DT_SYSTEM_PROMPT,
-    userPrompt: buildDTUserPrompt({
-      project: ctx.project,
-      requirement,
-      iterations,
-      screeningAnswers: ctx.screeningAnswers,
-      assetSummary,
-    }),
-    attachments: ctx.attachments,
-    jsonSchema: buildDTJsonSchema(requirement, validAssetKeys),
-    schemaName: "dt_answers",
-  });
+  // ── Per-iteration AI fill with server-side completion ───────────────────
+  //
+  // gpt-4o-mini is unreliable at two things when given a bundled DT prompt:
+  //   1. answering for *every* iteration in a multi-iteration requirement
+  //      (it often answers the first one or two and stops), and
+  //   2. walking a single iteration's tree all the way to a leaf (it often
+  //      answers the root node and stops).
+  //
+  // The fix: process one iteration at a time, then validate the returned
+  // path by walking the DT server-side. Any node that's missing from the
+  // path is filled in by a focused single-node AI call. Off-path "extra"
+  // answers from the bundled call are dropped — only the actual on-path
+  // sequence (root → leaf) is persisted.
+  const MAX_FALLBACK_CALLS_PER_ITERATION = 12;
+  const aggregated: DTAIResult = { iterations: [] };
+  const iterationErrors: string[] = [];
+  for (const it of iterations) {
+    try {
+      // First pass: bundled "walk the whole tree" call.
+      let bundled: DTAIResult["iterations"][number]["answers"] = [];
+      try {
+        const res = await runAIWithAttachments<DTAIResult>({
+          systemPrompt: DT_SYSTEM_PROMPT,
+          userPrompt: buildDTUserPrompt({
+            project: ctx.project,
+            requirement,
+            iterations: [it],
+            screeningAnswers: ctx.screeningAnswers,
+            assetSummary,
+          }),
+          attachments: ctx.attachments,
+          jsonSchema: buildDTJsonSchema(requirement, [it.assetKey]),
+          schemaName: "dt_answers",
+        });
+        bundled = res.iterations.find((r) => r.assetKey === it.assetKey)?.answers ?? [];
+      } catch (err) {
+        // If even the bundled call failed we proceed with an empty bundle;
+        // the per-node fallback below will populate the entire path.
+        console.warn(
+          `DT bundled call failed for ${requirement.id} / ${it.assetKey}, falling back to per-node:`,
+          err,
+        );
+      }
 
+      const answerMap = new Map<
+        string,
+        { answer: "yes" | "no"; reasoning: string }
+      >();
+      for (const a of bundled) {
+        if (!requirement.nodes[a.nodeId]) continue;
+        answerMap.set(a.nodeId, { answer: a.answer, reasoning: a.reasoning });
+      }
+
+      // Walk the tree using the bundled answers. If any node on the path is
+      // missing, fill it in with a focused single-node call, then re-walk.
+      let walk = walkDTPath(requirement, answerMap);
+      let fallbackCalls = 0;
+      while (
+        !walk.reachedLeaf &&
+        walk.missingNodeId !== undefined &&
+        fallbackCalls < MAX_FALLBACK_CALLS_PER_ITERATION
+      ) {
+        const missing = walk.missingNodeId;
+        const single = await aiAnswerSingleDTNode({
+          requirement,
+          iteration: it,
+          nodeId: missing,
+          prior: walk.onPathAnswers,
+          ctx,
+          assetSummary,
+        });
+        answerMap.set(missing, single);
+        fallbackCalls++;
+        walk = walkDTPath(requirement, answerMap);
+      }
+
+      // Persist only the on-path answers we resolved. If we still didn't
+      // reach a leaf after the fallback budget, what we have is at least the
+      // partial path the user can finish manually.
+      aggregated.iterations.push({
+        assetKey: it.assetKey,
+        answers: walk.onPathAnswers,
+      });
+
+      if (!walk.reachedLeaf) {
+        console.warn(
+          `DT path not fully resolved for ${requirement.id} / ${it.assetKey} after ${fallbackCalls} fallback calls; persisted ${walk.onPathAnswers.length} on-path answers.`,
+        );
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "AI 호출 실패";
+      iterationErrors.push(`${it.assetKey} (${it.label}): ${msg}`);
+      console.error(
+        `DT iteration AI fill error (${requirement.id} / ${it.assetKey}):`,
+        err,
+      );
+    }
+  }
+
+  // If every iteration failed, propagate so the caller can surface it.
+  // Partial failure: persist whatever we got, the caller logs the rest.
+  if (
+    aggregated.iterations.length === 0 &&
+    iterationErrors.length > 0
+  ) {
+    throw new Error(iterationErrors.join("; "));
+  }
+
+  const result = aggregated;
+  const validAssetKeys = iterations.map((it) => it.assetKey);
   const validKeySet = new Set(validAssetKeys);
   const validNodeIds = new Set(Object.keys(requirement.nodes));
   const now = new Date();
