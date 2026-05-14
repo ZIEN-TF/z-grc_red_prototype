@@ -507,6 +507,178 @@ reasoning은 1~2문장 한국어 — 근거 + 판단을 적으세요.`;
   return { answer: res.answer, reasoning: res.reasoning };
 }
 
+// Compute the iteration list for a DT requirement (one entry per asset that
+// matches the requirement's iterateOver scope, or a single "__global__" entry
+// for non-iterating requirements). Pulled out so the bulk init action can
+// return the flat (requirement, iteration) cross-product to the client.
+function computeRequirementIterations(
+  requirement: DTRequirement,
+  parsedAssets: ParsedAsset[],
+  applicableStandards: StandardId[],
+): Array<{ assetKey: string; label: string; metadata: Record<string, string> }> {
+  if (!requirement.iterateOver) {
+    return [
+      { assetKey: "__global__", label: "기기 전체 / Global", metadata: {} },
+    ];
+  }
+  const dedupedKinds = getApplicableKindsFor(
+    requirement,
+    DT_REQUIREMENTS,
+    applicableStandards,
+  );
+  const matching = matchAssetsForRequirement(
+    requirement,
+    parsedAssets,
+    dedupedKinds,
+  );
+  return matching.map((a) => ({
+    assetKey: a.id,
+    label: `${a.name} (${kindConfig(a.kind)?.title_ko ?? a.kind})`,
+    metadata: a.metadata,
+  }));
+}
+
+// Run the AI for one DT iteration: a bundled "walk the whole tree" call,
+// then server-side tree validation with per-node fallback for any nodes the
+// model skipped. Returns the resolved on-path answer sequence. Does NOT
+// touch the database — that's persistOneDTIteration's job.
+async function aiFillOneDTIteration(opts: {
+  requirement: DTRequirement;
+  iteration: { assetKey: string; label: string; metadata: Record<string, string> };
+  ctx: SingleReqContext;
+  assetSummary: string;
+}): Promise<{
+  onPathAnswers: Array<{ nodeId: string; answer: "yes" | "no"; reasoning: string }>;
+  reachedLeaf: boolean;
+  fallbackCalls: number;
+}> {
+  const { requirement, iteration, ctx, assetSummary } = opts;
+  const MAX_FALLBACK_CALLS_PER_ITERATION = 12;
+
+  let bundled: DTAIResult["iterations"][number]["answers"] = [];
+  try {
+    const res = await runAIWithAttachments<DTAIResult>({
+      systemPrompt: DT_SYSTEM_PROMPT,
+      userPrompt: buildDTUserPrompt({
+        project: ctx.project,
+        requirement,
+        iterations: [iteration],
+        screeningAnswers: ctx.screeningAnswers,
+        assetSummary,
+      }),
+      attachments: ctx.attachments,
+      jsonSchema: buildDTJsonSchema(requirement, [iteration.assetKey]),
+      schemaName: "dt_answers",
+    });
+    bundled =
+      res.iterations.find((r) => r.assetKey === iteration.assetKey)?.answers ?? [];
+  } catch (err) {
+    // Bundled call failed — the per-node fallback below will populate the
+    // entire path one node at a time.
+    console.warn(
+      `DT bundled call failed for ${requirement.id} / ${iteration.assetKey}, falling back to per-node:`,
+      err,
+    );
+  }
+
+  const answerMap = new Map<
+    string,
+    { answer: "yes" | "no"; reasoning: string }
+  >();
+  for (const a of bundled) {
+    if (!requirement.nodes[a.nodeId]) continue;
+    answerMap.set(a.nodeId, { answer: a.answer, reasoning: a.reasoning });
+  }
+
+  let walk = walkDTPath(requirement, answerMap);
+  let fallbackCalls = 0;
+  while (
+    !walk.reachedLeaf &&
+    walk.missingNodeId !== undefined &&
+    fallbackCalls < MAX_FALLBACK_CALLS_PER_ITERATION
+  ) {
+    const missing = walk.missingNodeId;
+    const single = await aiAnswerSingleDTNode({
+      requirement,
+      iteration,
+      nodeId: missing,
+      prior: walk.onPathAnswers,
+      ctx,
+      assetSummary,
+    });
+    answerMap.set(missing, single);
+    fallbackCalls++;
+    walk = walkDTPath(requirement, answerMap);
+  }
+
+  return {
+    onPathAnswers: walk.onPathAnswers,
+    reachedLeaf: walk.reachedLeaf,
+    fallbackCalls,
+  };
+}
+
+// Persist the on-path answers for one DT iteration. Scoped to the specific
+// (projectId, requirementId, assetId) tuple so other iterations aren't
+// disturbed. User-reviewed rows are preserved.
+async function persistOneDTIteration(opts: {
+  projectId: string;
+  requirement: DTRequirement;
+  assetKey: string;
+  onPathAnswers: Array<{ nodeId: string; answer: "yes" | "no"; reasoning: string }>;
+}): Promise<{ saved: number }> {
+  const { projectId, requirement, assetKey, onPathAnswers } = opts;
+  const targetAssetId: string | null = assetKey === "__global__" ? null : assetKey;
+
+  // better-sqlite3 generates `= NULL` (always false) for null in WHERE, so we
+  // can't query/delete null-assetId rows directly. Load everything for the
+  // requirement and filter in JS.
+  const allExisting = await prisma.dTAnswer.findMany({
+    where: { projectId, requirementId: requirement.id },
+    select: { id: true, assetId: true, nodeId: true, userReviewed: true },
+  });
+  const rowsForThisIteration = allExisting.filter(
+    (r) => (r.assetId ?? null) === targetAssetId,
+  );
+  const reviewedNodeIds = new Set(
+    rowsForThisIteration.filter((r) => r.userReviewed).map((r) => r.nodeId),
+  );
+  const unreviewedIds = rowsForThisIteration
+    .filter((r) => !r.userReviewed)
+    .map((r) => r.id);
+
+  if (unreviewedIds.length > 0) {
+    await prisma.dTAnswer.deleteMany({ where: { id: { in: unreviewedIds } } });
+  }
+
+  const validNodeIds = new Set(Object.keys(requirement.nodes));
+  const seenNodeIds = new Set<string>();
+  const now = new Date();
+  const toCreate = [];
+  for (const ans of onPathAnswers) {
+    if (!validNodeIds.has(ans.nodeId)) continue;
+    if (seenNodeIds.has(ans.nodeId)) continue;
+    seenNodeIds.add(ans.nodeId);
+    if (reviewedNodeIds.has(ans.nodeId)) continue; // keep user-reviewed
+    toCreate.push({
+      projectId,
+      assetId: targetAssetId,
+      mechanismCode: requirement.mechanismCode,
+      requirementId: requirement.id,
+      nodeId: ans.nodeId,
+      answer: ans.answer,
+      notes: ans.reasoning ?? null,
+      aiGenerated: true,
+      aiGeneratedAt: now,
+      userReviewed: false,
+    });
+  }
+  if (toCreate.length > 0) {
+    await prisma.dTAnswer.createMany({ data: toCreate });
+  }
+  return { saved: toCreate.length };
+}
+
 // Fill a single DT requirement using the shared project context. Returns
 // counts; saves rows directly to DB. Skips iterations the user already
 // reviewed, replaces unreviewed AI rows with fresh AI output.
@@ -820,15 +992,19 @@ function computeVisibleRequirementIds(
 
 // Step 1 of the chunked DT bulk fill — does the heavy upfront work (loading
 // attachments, creating ACM/authenticator instances if missing) and returns
-// the list of requirement IDs the client should iterate over.
+// the flat (requirementId, assetKey) iteration list the client should walk.
 //
-// Splitting the bulk fill into init + per-requirement calls keeps each
+// Splitting the bulk fill into init + per-iteration calls keeps each
 // server-action invocation under proxy timeouts (Cloudflare's 100s limit in
 // particular). The total amount of OpenAI work is unchanged.
 export async function aiFillDTInit(projectId: string): Promise<{
   acmsCreated: number;
   authsCreated: number;
+  // Backward-compat: the unique requirement IDs in the iteration list.
   requirementIds: string[];
+  // Flat list of (requirementId, assetKey) pairs to process. Each pair is
+  // one server-action call (aiFillDTIteration) on the client.
+  iterations: Array<{ requirementId: string; assetKey: string; label: string }>;
 }> {
   await assertProjectEditable(projectId);
 
@@ -934,13 +1110,115 @@ export async function aiFillDTInit(projectId: string): Promise<{
 
   const requirementIds = computeVisibleRequirementIds(ctx);
 
+  // Recompute the applicable standards the same way computeVisibleRequirementIds
+  // does so iteration scoping uses an identical view of the project.
+  const recomputed = evaluateScreening(ctx.screeningAnswers);
+  const finalStandards =
+    recomputed.applicableStandards.length > 0
+      ? recomputed.applicableStandards
+      : ctx.applicableStandards;
+
+  // Flatten into (requirementId, assetKey) pairs the client can iterate over.
+  // Each pair becomes one aiFillDTIteration call; this is what keeps any
+  // individual request well under the proxy timeout window.
+  const iterations: Array<{ requirementId: string; assetKey: string; label: string }> = [];
+  for (const reqId of requirementIds) {
+    const req = requirementById(reqId);
+    if (!req) continue;
+    const its = computeRequirementIterations(
+      req,
+      ctx.parsedAssets,
+      finalStandards,
+    );
+    for (const it of its) {
+      iterations.push({
+        requirementId: reqId,
+        assetKey: it.assetKey,
+        label: it.label,
+      });
+    }
+  }
+
   // Revalidate the assets pages so newly-created ACM/auth instances appear.
   if (acmsCreated > 0 || authsCreated > 0) {
     revalidatePath(`/projects/${projectId}/assets`);
     revalidatePath(`/projects/${projectId}/assets/review`);
   }
 
-  return { acmsCreated, authsCreated, requirementIds };
+  return { acmsCreated, authsCreated, requirementIds, iterations };
+}
+
+// Step 2 of the chunked DT bulk fill — processes exactly one (requirement,
+// iteration) pair. Designed to be called from the client in a loop after
+// aiFillDTInit returns the iteration list. Each call typically completes in
+// a few seconds and is the unit of progress reporting in the UI.
+export async function aiFillDTIteration(
+  projectId: string,
+  requirementId: string,
+  assetKey: string,
+): Promise<{ saved: number; reachedLeaf: boolean; fallbackCalls: number }> {
+  await assertProjectEditable(projectId);
+
+  const req = requirementById(requirementId);
+  if (!req) throw new Error(`알 수 없는 DT 요구사항: ${requirementId}`);
+
+  const ctx = await loadDTContext(projectId);
+  if (!ctx.raw.screeningComplete) {
+    throw new Error("먼저 스크리닝을 완료해 주세요.");
+  }
+  if (ctx.attachments.length === 0) {
+    throw new Error("AI가 참고할 첨부 파일이 없습니다.");
+  }
+
+  const recomputed = evaluateScreening(ctx.screeningAnswers);
+  const finalStandards =
+    recomputed.applicableStandards.length > 0
+      ? recomputed.applicableStandards
+      : ctx.applicableStandards;
+
+  // Re-derive the iteration's metadata/label from the live asset list so
+  // assetKeys passed by the client are validated against the current project
+  // state. assetKey="__global__" is allowed for non-iterating requirements.
+  const allIterations = computeRequirementIterations(
+    req,
+    ctx.parsedAssets,
+    finalStandards,
+  );
+  const iteration = allIterations.find((it) => it.assetKey === assetKey);
+  if (!iteration) {
+    throw new Error(
+      `유효하지 않은 평가 단위: ${requirementId} / ${assetKey} (자산이 삭제됐을 수 있음)`,
+    );
+  }
+
+  const assetSummary = buildAssetSummary(ctx.parsedAssets);
+  const r = await aiFillOneDTIteration({
+    requirement: req,
+    iteration,
+    ctx: {
+      project: ctx.project,
+      parsedAssets: ctx.parsedAssets,
+      screeningAnswers: ctx.screeningAnswers,
+      applicableStandards: finalStandards,
+      attachments: ctx.attachments,
+    },
+    assetSummary,
+  });
+
+  const persisted = await persistOneDTIteration({
+    projectId,
+    requirement: req,
+    assetKey,
+    onPathAnswers: r.onPathAnswers,
+  });
+
+  revalidatePath(`/projects/${projectId}/dt/${requirementId}`);
+
+  return {
+    saved: persisted.saved,
+    reachedLeaf: r.reachedLeaf,
+    fallbackCalls: r.fallbackCalls,
+  };
 }
 
 // Step 2 of the chunked DT bulk fill — processes exactly one DT requirement.
