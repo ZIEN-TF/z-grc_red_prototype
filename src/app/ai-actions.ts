@@ -1085,10 +1085,22 @@ export async function aiFillDTInit(projectId: string): Promise<{
       for (const auth of inst.authenticators) {
         const parentId = acmIdByName.get(auth.acmName.trim());
         if (!parentId) continue;
+        // Default password authenticators with empty subtype to "user_set"
+        // so AUM-5-2 and AUM-6 iteration filters match. Empty would leave
+        // those DTs as N/A even when the device clearly uses passwords.
+        // Empty string is falsy, so this catches both "" and undefined.
+        const passwordSubtype =
+          auth.authType === "password" && !auth.passwordSubtype
+            ? "user_set"
+            : auth.passwordSubtype;
+        // IMPORTANT: metadata key names must match the field names declared
+        // in asset-kinds.ts (authenticator_instance config) — the DT
+        // iterateOver filters key by those exact strings. Use camelCase
+        // (authType, passwordSubtype), NOT snake_case.
         const meta = JSON.stringify({
           acm_id: parentId,
-          auth_type: auth.authType,
-          password_subtype: auth.passwordSubtype,
+          authType: auth.authType,
+          passwordSubtype,
         });
         await prisma.asset.create({
           data: {
@@ -1375,10 +1387,17 @@ export async function aiFillDTAll(projectId: string) {
       for (const auth of inst.authenticators) {
         const parentId = acmIdByName.get(auth.acmName.trim());
         if (!parentId) continue; // skip orphaned authenticators
+        // Empty string is falsy, so this catches both "" and undefined.
+        const passwordSubtype =
+          auth.authType === "password" && !auth.passwordSubtype
+            ? "user_set"
+            : auth.passwordSubtype;
+        // camelCase keys to match asset-kinds.ts field names — the DT
+        // iterateOver filters depend on this exact spelling.
         const meta = JSON.stringify({
           acm_id: parentId,
-          auth_type: auth.authType,
-          password_subtype: auth.passwordSubtype,
+          authType: auth.authType,
+          passwordSubtype,
         });
         await prisma.asset.create({
           data: {
