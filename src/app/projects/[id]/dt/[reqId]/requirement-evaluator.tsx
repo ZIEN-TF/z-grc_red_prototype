@@ -30,6 +30,7 @@ import {
   type DTRequirement,
   type DTNode,
   type PathStep,
+  type NodeAnswer,
 } from "@/lib/decision-trees";
 import {
   resetDTEvaluation,
@@ -40,7 +41,7 @@ import {
 type InitialAnswer = {
   assetId: string | null;
   nodeId: string;
-  answer: "yes" | "no";
+  answer: NodeAnswer;
   notes: string;
 };
 
@@ -76,11 +77,11 @@ export function RequirementEvaluator({
   autoNAByAsset: Record<string, boolean>;
   naGateMessage: NAGateMessage;
 }) {
-  // Map assetKey → { [nodeId]: "yes" | "no" }
+  // Map assetKey → { [nodeId]: "yes" | "no" | "na" }
   const [answers, setAnswers] = useState<
-    Record<string, Record<string, "yes" | "no">>
+    Record<string, Record<string, NodeAnswer>>
   >(() => {
-    const out: Record<string, Record<string, "yes" | "no">> = {};
+    const out: Record<string, Record<string, NodeAnswer>> = {};
     for (const a of initialAnswers) {
       const k = aKey(a.assetId);
       if (!out[k]) out[k] = {};
@@ -230,10 +231,10 @@ function AssetEvaluationCard({
   requirement: DTRequirement;
   assetId: string | null;
   assetLabel: MatchingAsset | null;
-  answers: Record<string, "yes" | "no">;
+  answers: Record<string, NodeAnswer>;
   notes: Record<string, string>;
   setAnswers: React.Dispatch<
-    React.SetStateAction<Record<string, Record<string, "yes" | "no">>>
+    React.SetStateAction<Record<string, Record<string, NodeAnswer>>>
   >;
   setNotes: React.Dispatch<React.SetStateAction<Record<string, string>>>;
 }) {
@@ -251,7 +252,7 @@ function AssetEvaluationCard({
     Array.isArray(requirement.evidenceFields) &&
     requirement.evidenceFields.length > 0;
 
-  function onAnswer(nodeId: string, value: "yes" | "no") {
+  function onAnswer(nodeId: string, value: NodeAnswer) {
     // Optimistic update
     setAnswers((prev) => ({
       ...prev,
@@ -453,7 +454,7 @@ function AnsweredStep({
   hasStructuredEvidence,
 }: {
   node: DTNode;
-  answer: "yes" | "no";
+  answer: NodeAnswer;
   notes: string;
   onNotes: (v: string) => void;
   onCommitNotes: () => void;
@@ -480,13 +481,15 @@ function AnsweredStep({
             "shrink-0 text-[11px]",
             answer === "yes"
               ? "bg-primary/20 text-primary hover:bg-primary/20"
-              : "bg-muted text-foreground hover:bg-muted",
+              : answer === "na"
+                ? "bg-amber-500/20 text-amber-700 hover:bg-amber-500/20 dark:text-amber-400"
+                : "bg-muted text-foreground hover:bg-muted",
           )}
         >
-          {answer === "yes" ? "Yes" : "No"}
+          {answer === "yes" ? "Yes" : answer === "na" ? "N/A" : "No"}
         </Badge>
       </div>
-      {answer === "yes" && !hasStructuredEvidence ? (
+      {(answer === "yes" || answer === "na") && !hasStructuredEvidence ? (
         <div className="mt-2 space-y-1 pl-8">
           <p className="text-[11px] font-medium text-foreground">
             증빙·근거:{" "}
@@ -541,7 +544,7 @@ function ActiveQuestion({
   hasStructuredEvidence,
 }: {
   node: DTNode;
-  onAnswer: (a: "yes" | "no") => void;
+  onAnswer: (a: NodeAnswer) => void;
   disabled?: boolean;
   hasStructuredEvidence?: boolean;
 }) {
@@ -591,14 +594,25 @@ function ActiveQuestion({
           <X className="mr-1 size-4" />
           No
         </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => onAnswer("na")}
+          disabled={disabled}
+          className="min-w-24 border-amber-500/40 text-amber-700 hover:bg-amber-500/10 dark:text-amber-400"
+        >
+          <MinusCircle className="mr-1 size-4" />
+          N/A
+        </Button>
         {!hasStructuredEvidence && (
           <p className="flex-1 text-[11px] text-muted-foreground">
-            Yes 답변 시 해당 단계의 증빙·근거 입력란이 나타납니다.
+            Yes 또는 N/A 답변 시 해당 단계의 증빙·근거 입력란이 나타납니다. N/A는 이 질문이 본 자산에 해당되지 않을 때 선택하며, 평가는 즉시 NOT APPLICABLE로 종료됩니다.
           </p>
         )}
         {hasStructuredEvidence && (
           <p className="flex-1 text-[11px] text-muted-foreground">
-            상세 증빙은 「증빙 정보 입력」 페이지에서 수집합니다.
+            상세 증빙은 「증빙 정보 입력」 페이지에서 수집합니다. N/A는 이 질문이 본 자산에 해당되지 않을 때 선택합니다.
           </p>
         )}
       </div>

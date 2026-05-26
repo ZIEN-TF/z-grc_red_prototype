@@ -21,6 +21,7 @@ import {
   getApplicableKindsFor,
   walkTree,
   DT_REQUIREMENTS,
+  type NodeAnswer,
 } from "@/lib/decision-trees";
 import type { StandardId } from "@/lib/mechanisms";
 import { MinusCircle } from "lucide-react";
@@ -128,7 +129,7 @@ export default async function RequirementPage({
   const initialAnswers = project.dtAnswers.map((a) => ({
     assetId: a.assetId,
     nodeId: a.nodeId,
-    answer: a.answer as "yes" | "no",
+    answer: a.answer as NodeAnswer,
     notes: a.notes ?? "",
   }));
 
@@ -361,10 +362,10 @@ function isSum1Pass(
     answer: string;
   }>,
 ): boolean {
-  const answers: Record<string, "yes" | "no"> = {};
+  const answers: Record<string, NodeAnswer> = {};
   for (const d of dtAnswers) {
     if (d.requirementId === req.id && d.assetId === null) {
-      if (d.answer === "yes" || d.answer === "no") {
+      if (d.answer === "yes" || d.answer === "no" || d.answer === "na") {
         answers[d.nodeId] = d.answer;
       }
     }
@@ -445,9 +446,12 @@ function buildAcmsWithAum2Pass(
   dtAnswers: Array<{ requirementId: string; assetId: string | null; nodeId: string; answer: string }>,
 ) {
   return acmInstances.map((acm) => {
-    const assetAnswers: Record<string, "yes" | "no"> = {};
+    const assetAnswers: Record<string, NodeAnswer> = {};
     for (const d of dtAnswers) {
-      if (d.assetId === acm.id && (d.answer === "yes" || d.answer === "no")) {
+      if (
+        d.assetId === acm.id &&
+        (d.answer === "yes" || d.answer === "no" || d.answer === "na")
+      ) {
         assetAnswers[d.nodeId] = d.answer;
       }
     }

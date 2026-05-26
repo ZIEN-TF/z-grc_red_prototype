@@ -38,6 +38,7 @@ import {
   type DTRequirement,
   type EvidenceField,
   type AssessmentType,
+  type NodeAnswer,
 } from "@/lib/decision-trees";
 import { PrintButton } from "./print-button";
 import { FinalizeControls } from "./finalize-banner";
@@ -59,7 +60,7 @@ type IterationBlock = {
     nodeId: string;
     prompt_ko: string;
     notes: string;
-    answer: "yes" | "no";
+    answer: NodeAnswer;
   }>;
   assessments: Array<{
     type: AssessmentType;
@@ -1196,11 +1197,11 @@ function collectAnswers(
   dtAnswers: Array<{ requirementId: string; assetId: string | null; nodeId: string; answer: string }>,
   reqId: string,
   assetId: string | null,
-): Record<string, "yes" | "no"> {
-  const out: Record<string, "yes" | "no"> = {};
+): Record<string, NodeAnswer> {
+  const out: Record<string, NodeAnswer> = {};
   for (const d of dtAnswers) {
     if (d.requirementId === reqId && (d.assetId ?? null) === assetId) {
-      if (d.answer === "yes" || d.answer === "no") {
+      if (d.answer === "yes" || d.answer === "no" || d.answer === "na") {
         out[d.nodeId] = d.answer;
       }
     }
@@ -1223,7 +1224,7 @@ function buildIter({
   assetId: string | null;
   assetLabel: string | null;
   assetKind: string | null;
-  answers: Record<string, "yes" | "no">;
+  answers: Record<string, NodeAnswer>;
   dtAnswers: Array<{
     requirementId: string;
     assetId: string | null;

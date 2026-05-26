@@ -25,6 +25,7 @@ import {
   getApplicableKindsFor,
   matchAssetsForRequirement,
   walkTree,
+  type NodeAnswer,
 } from "@/lib/decision-trees";
 import {
   DTOverviewClient,
@@ -461,12 +462,13 @@ function answersForAssetReq(
   rows: AnswerRow[],
   assetId: string | null,
   requirementId: string,
-): Record<string, "yes" | "no"> {
-  const out: Record<string, "yes" | "no"> = {};
+): Record<string, NodeAnswer> {
+  const out: Record<string, NodeAnswer> = {};
   for (const r of rows) {
     if (r.requirementId !== requirementId) continue;
     if ((r.assetId ?? null) !== assetId) continue;
-    if (r.answer === "yes" || r.answer === "no") out[r.nodeId] = r.answer;
+    if (r.answer === "yes" || r.answer === "no" || r.answer === "na")
+      out[r.nodeId] = r.answer;
   }
   return out;
 }

@@ -68,7 +68,7 @@ function describeIteration(opts: {
     assetKey: string;
     label: string;
     metadata: Record<string, string>;
-    answeredPath: Array<{ nodeId: string; answer: "yes" | "no" }>;
+    answeredPath: Array<{ nodeId: string; answer: "yes" | "no" | "na" }>;
     applicableTypes: AssessmentType[];
   };
 }): string {
@@ -117,7 +117,7 @@ export function buildAssessmentUserPrompt(opts: {
     assetKey: string;
     label: string;
     metadata: Record<string, string>;
-    answeredPath: Array<{ nodeId: string; answer: "yes" | "no" }>;
+    answeredPath: Array<{ nodeId: string; answer: "yes" | "no" | "na" }>;
     applicableTypes: AssessmentType[];
   }>;
   screeningAnswers: Record<string, "yes" | "no">;

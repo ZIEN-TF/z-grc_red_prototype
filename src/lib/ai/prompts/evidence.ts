@@ -34,7 +34,7 @@ function describeIteration(opts: {
     assetKey: string;
     label: string;
     metadata: Record<string, string>;
-    answeredPath: Array<{ nodeId: string; answer: "yes" | "no" }>;
+    answeredPath: Array<{ nodeId: string; answer: "yes" | "no" | "na" }>;
   };
   applicableFields: EvidenceField[];
 }): string {
@@ -84,7 +84,7 @@ export function buildEvidenceUserPrompt(opts: {
     assetKey: string;
     label: string;
     metadata: Record<string, string>;
-    answeredPath: Array<{ nodeId: string; answer: "yes" | "no" }>;
+    answeredPath: Array<{ nodeId: string; answer: "yes" | "no" | "na" }>;
     applicableFields: EvidenceField[];
   }>;
   screeningAnswers: Record<string, "yes" | "no">;

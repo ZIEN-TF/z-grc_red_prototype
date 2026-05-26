@@ -33,6 +33,7 @@ import {
   buildPathSummary,
   type DTOutcome,
   type EvidenceField,
+  type NodeAnswer,
 } from "@/lib/decision-trees";
 import { StructuredEvidenceForm } from "./structured-evidence-form";
 import { EvidenceForm } from "./evidence-form";
@@ -144,14 +145,14 @@ export default async function EvidencePage({
       outcome: DTOutcome | "incomplete";
       pathSummary: string;
       // For structured: the answers map for visibility filtering
-      answeredMap: Record<string, "yes" | "no">;
+      answeredMap: Record<string, NodeAnswer>;
       // For structured: the subset of evidence fields that apply + current values
       applicableFields: Array<{ field: EvidenceField; value: string; aiGenerated: boolean }>;
       // For legacy notes fallback: YES-answered path steps
       pathSteps: Array<{
         nodeId: string;
         nodeText_ko: string;
-        answer: "yes" | "no";
+        answer: NodeAnswer;
         prompt_ko: string;
         prompt_en: string;
         notes: string;
@@ -204,6 +205,7 @@ export default async function EvidencePage({
               d.requirementId === req.naFromRequirement!.requirementId &&
               (d.assetId ?? null) === it.assetId,
           )
+          .filter((d) => d.answer === "yes" || d.answer === "no")
           .map((d) => ({
             nodeId: d.nodeId,
             answer: d.answer as "yes" | "no",
@@ -213,14 +215,14 @@ export default async function EvidencePage({
         }
       }
 
-      const answers: Record<string, "yes" | "no"> = {};
+      const answers: Record<string, NodeAnswer> = {};
       const notesByNode: Record<string, string> = {};
       for (const ans of project.dtAnswers) {
         if (
           ans.requirementId === req.id &&
           (ans.assetId ?? null) === it.assetId
         ) {
-          if (ans.answer === "yes" || ans.answer === "no") {
+          if (ans.answer === "yes" || ans.answer === "no" || ans.answer === "na") {
             answers[ans.nodeId] = ans.answer;
           }
           notesByNode[ans.nodeId] = ans.notes ?? "";

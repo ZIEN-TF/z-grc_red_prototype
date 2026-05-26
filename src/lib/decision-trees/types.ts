@@ -5,6 +5,11 @@ import type { StandardId } from "../mechanisms";
 
 export type DTOutcome = "pass" | "fail" | "not_applicable";
 
+// A user's (or AI's) answer to a single DT node. "na" is a node-level
+// short-circuit: answering any node "na" terminates that iteration with a
+// NOT APPLICABLE outcome, independent of the node's yes/no branches.
+export type NodeAnswer = "yes" | "no" | "na";
+
 // Technical assessment types performed by a certification consultant after
 // the Required Information has been captured. Each requirement declares which
 // of these apply via the assessments-map.
@@ -67,8 +72,12 @@ export function branchOutcome(branch: DTBranch): DTOutcome | null {
 
 export function evidencePromptFor(
   node: DTNode,
-  answer: "yes" | "no",
+  answer: NodeAnswer,
 ): { ko: string; en: string } {
+  // Node-level N/A always maps to the not-applicable evidence prompt.
+  if (answer === "na") {
+    return defaultEvidencePrompt("not_applicable");
+  }
   const branch = answer === "yes" ? node.yes : node.no;
   if (branch.evidencePrompt_ko || branch.evidencePrompt_en) {
     const def = defaultEvidencePrompt(branchOutcome(branch));
@@ -289,7 +298,7 @@ export function evaluateNAFromRequirement(
   return { applies: false };
 }
 
-export type PathStep = { nodeId: string; answer: "yes" | "no" };
+export type PathStep = { nodeId: string; answer: NodeAnswer };
 
 export type WalkState =
   | { kind: "question"; nodeId: string; path: PathStep[] }
@@ -298,7 +307,8 @@ export type WalkState =
 // Render a human-readable summary like "DN-1 No → DN-2 No → DN-3 No → DN-4 Yes → PASS".
 export function buildPathSummary(walk: WalkState): string {
   const parts = walk.path.map(
-    (s) => `${s.nodeId} ${s.answer === "yes" ? "Yes" : "No"}`,
+    (s) =>
+      `${s.nodeId} ${s.answer === "yes" ? "Yes" : s.answer === "no" ? "No" : "N/A"}`,
   );
   if (walk.kind === "outcome") {
     const label =
@@ -314,7 +324,7 @@ export function buildPathSummary(walk: WalkState): string {
 
 export function walkTree(
   req: DTRequirement,
-  answers: Record<string, "yes" | "no">,
+  answers: Record<string, NodeAnswer>,
 ): WalkState {
   const path: PathStep[] = [];
   const visited = new Set<string>();
@@ -331,6 +341,11 @@ export function walkTree(
       return { kind: "question", nodeId: currentId, path };
     }
     path.push({ nodeId: currentId, answer });
+    // Node-level N/A short-circuits the entire iteration to NOT APPLICABLE,
+    // regardless of the node's yes/no branches.
+    if (answer === "na") {
+      return { kind: "outcome", outcome: "not_applicable", path };
+    }
     const branch = answer === "yes" ? node.yes : node.no;
     if ("outcome" in branch) {
       return { kind: "outcome", outcome: branch.outcome, path };

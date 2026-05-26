@@ -393,7 +393,7 @@ export async function saveDTNodeAnswer(input: {
   mechanismCode: string;
   requirementId: string;
   nodeId: string;
-  answer: "yes" | "no";
+  answer: "yes" | "no" | "na";
   notes?: string;
 }) {
   await assertProjectEditable(input.projectId);

@@ -12,7 +12,7 @@ import { saveDTNodeAnswer } from "@/app/actions";
 type Step = {
   nodeId: string;
   nodeText_ko: string;
-  answer: "yes" | "no";
+  answer: "yes" | "no" | "na";
   prompt_ko: string;
   prompt_en: string;
   notes: string;

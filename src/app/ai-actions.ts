@@ -61,6 +61,7 @@ import {
   type DTRequirement,
   type EvidenceField,
   type AssessmentType,
+  type NodeAnswer,
 } from "@/lib/decision-trees";
 import { evaluateScreening } from "@/lib/screening-questions";
 import type { StandardId } from "@/lib/mechanisms";
@@ -373,13 +374,13 @@ type SingleReqContext = {
 //     (off-path AI answers are dropped).
 function walkDTPath(
   requirement: DTRequirement,
-  answers: Map<string, { answer: "yes" | "no"; reasoning: string }>,
+  answers: Map<string, { answer: NodeAnswer; reasoning: string }>,
 ): {
   reachedLeaf: boolean;
   missingNodeId: string | undefined;
-  onPathAnswers: Array<{ nodeId: string; answer: "yes" | "no"; reasoning: string }>;
+  onPathAnswers: Array<{ nodeId: string; answer: NodeAnswer; reasoning: string }>;
 } {
-  const onPathAnswers: Array<{ nodeId: string; answer: "yes" | "no"; reasoning: string }> = [];
+  const onPathAnswers: Array<{ nodeId: string; answer: NodeAnswer; reasoning: string }> = [];
   const visited = new Set<string>();
   let currentId = requirement.rootNodeId;
   while (true) {
@@ -398,6 +399,11 @@ function walkDTPath(
       return { reachedLeaf: false, missingNodeId: currentId, onPathAnswers };
     }
     onPathAnswers.push({ nodeId: currentId, answer: ans.answer, reasoning: ans.reasoning });
+    // Node-level N/A short-circuits the iteration to NOT APPLICABLE — it's a
+    // resolved leaf with no further nodes to walk.
+    if (ans.answer === "na") {
+      return { reachedLeaf: true, missingNodeId: undefined, onPathAnswers };
+    }
     const branch = ans.answer === "yes" ? node.yes : node.no;
     if ("outcome" in branch) {
       return { reachedLeaf: true, missingNodeId: undefined, onPathAnswers };
@@ -413,10 +419,10 @@ async function aiAnswerSingleDTNode(opts: {
   requirement: DTRequirement;
   iteration: { assetKey: string; label: string; metadata: Record<string, string> };
   nodeId: string;
-  prior: Array<{ nodeId: string; answer: "yes" | "no"; reasoning: string }>;
+  prior: Array<{ nodeId: string; answer: NodeAnswer; reasoning: string }>;
   ctx: SingleReqContext;
   assetSummary: string;
-}): Promise<{ answer: "yes" | "no"; reasoning: string }> {
+}): Promise<{ answer: NodeAnswer; reasoning: string }> {
   const { requirement, iteration, nodeId, prior, ctx, assetSummary } = opts;
   const node = requirement.nodes[nodeId];
   if (!node) throw new Error(`알 수 없는 DT 노드: ${nodeId}`);
@@ -451,7 +457,7 @@ async function aiAnswerSingleDTNode(opts: {
     .filter(Boolean)
     .join("\n");
 
-  const userPrompt = `다음 DT 노드에 대해 yes/no로 답하세요. 이전 노드 답변은 이미 결정되었으므로 그 흐름에 정합하게 답해야 합니다.
+  const userPrompt = `다음 DT 노드에 대해 yes/no/na로 답하세요. 이전 노드 답변은 이미 결정되었으므로 그 흐름에 정합하게 답해야 합니다.
 
 === 제품 정보 ===
 ${productInfo}
@@ -477,6 +483,7 @@ ${priorBlock}
 ${node.hint_ko ? `힌트: ${node.hint_ko}` : ""}
 - YES ${yesBranch}
 - NO  ${noBranch}
+- NA  → 이 질문이 본 자산·기기에 전혀 해당되지 않는 경우에만 선택 (즉시 NOT APPLICABLE 종료). yes/no로 판단 가능하면 na를 쓰지 마세요.
 
 이 단일 노드에 대해서만 { nodeId, answer, reasoning } 형태로 답하세요.
 reasoning은 1~2문장 한국어 — 근거 + 판단을 적으세요.`;
@@ -486,7 +493,7 @@ reasoning은 1~2문장 한국어 — 근거 + 판단을 적으세요.`;
     additionalProperties: false,
     properties: {
       nodeId: { type: "string", enum: [nodeId] },
-      answer: { type: "string", enum: ["yes", "no"] },
+      answer: { type: "string", enum: ["yes", "no", "na"] },
       reasoning: { type: "string" },
     },
     required: ["nodeId", "answer", "reasoning"],
@@ -494,7 +501,7 @@ reasoning은 1~2문장 한국어 — 근거 + 판단을 적으세요.`;
 
   const res = await runAIWithAttachments<{
     nodeId: string;
-    answer: "yes" | "no";
+    answer: NodeAnswer;
     reasoning: string;
   }>({
     systemPrompt: DT_SYSTEM_PROMPT,
@@ -548,7 +555,7 @@ async function aiFillOneDTIteration(opts: {
   ctx: SingleReqContext;
   assetSummary: string;
 }): Promise<{
-  onPathAnswers: Array<{ nodeId: string; answer: "yes" | "no"; reasoning: string }>;
+  onPathAnswers: Array<{ nodeId: string; answer: NodeAnswer; reasoning: string }>;
   reachedLeaf: boolean;
   fallbackCalls: number;
 }> {
@@ -583,7 +590,7 @@ async function aiFillOneDTIteration(opts: {
 
   const answerMap = new Map<
     string,
-    { answer: "yes" | "no"; reasoning: string }
+    { answer: NodeAnswer; reasoning: string }
   >();
   for (const a of bundled) {
     if (!requirement.nodes[a.nodeId]) continue;
@@ -625,7 +632,7 @@ async function persistOneDTIteration(opts: {
   projectId: string;
   requirement: DTRequirement;
   assetKey: string;
-  onPathAnswers: Array<{ nodeId: string; answer: "yes" | "no"; reasoning: string }>;
+  onPathAnswers: Array<{ nodeId: string; answer: NodeAnswer; reasoning: string }>;
 }): Promise<{ saved: number }> {
   const { projectId, requirement, assetKey, onPathAnswers } = opts;
   const targetAssetId: string | null = assetKey === "__global__" ? null : assetKey;
@@ -769,7 +776,7 @@ async function fillSingleDTRequirement(
 
       const answerMap = new Map<
         string,
-        { answer: "yes" | "no"; reasoning: string }
+        { answer: NodeAnswer; reasoning: string }
       >();
       for (const a of bundled) {
         if (!requirement.nodes[a.nodeId]) continue;
@@ -1653,11 +1660,12 @@ export async function aiFillEvidenceAll(projectId: string) {
   const assetSummary = buildAssetSummary(parsedAssets);
 
   // Pre-index DT answers per (requirement, assetKey).
-  const answersByReqAsset = new Map<string, Record<string, "yes" | "no">>();
+  const answersByReqAsset = new Map<string, Record<string, NodeAnswer>>();
   for (const a of project.dtAnswers) {
     const k = `${a.requirementId}::${a.assetId ?? "__global__"}`;
     const cur = answersByReqAsset.get(k) ?? {};
-    if (a.answer === "yes" || a.answer === "no") cur[a.nodeId] = a.answer;
+    if (a.answer === "yes" || a.answer === "no" || a.answer === "na")
+      cur[a.nodeId] = a.answer;
     answersByReqAsset.set(k, cur);
   }
 
@@ -1682,7 +1690,7 @@ export async function aiFillEvidenceAll(projectId: string) {
         assetKey: string;
         label: string;
         metadata: Record<string, string>;
-        answeredPath: Array<{ nodeId: string; answer: "yes" | "no" }>;
+        answeredPath: Array<{ nodeId: string; answer: NodeAnswer }>;
         applicableFields: EvidenceField[];
       };
       const iters: IterEvid[] = [];
@@ -1723,6 +1731,7 @@ export async function aiFillEvidenceAll(projectId: string) {
                 (d.assetId ?? null) ===
                   (it.assetKey === "__global__" ? null : it.assetKey),
             )
+            .filter((d) => d.answer === "yes" || d.answer === "no")
             .map((d) => ({
               nodeId: d.nodeId,
               answer: d.answer as "yes" | "no",
@@ -1906,11 +1915,12 @@ export async function aiFillAssessmentAll(projectId: string) {
   }
   const assetSummary = buildAssetSummary(parsedAssets);
 
-  const answersByReqAsset = new Map<string, Record<string, "yes" | "no">>();
+  const answersByReqAsset = new Map<string, Record<string, NodeAnswer>>();
   for (const a of project.dtAnswers) {
     const k = `${a.requirementId}::${a.assetId ?? "__global__"}`;
     const cur = answersByReqAsset.get(k) ?? {};
-    if (a.answer === "yes" || a.answer === "no") cur[a.nodeId] = a.answer;
+    if (a.answer === "yes" || a.answer === "no" || a.answer === "na")
+      cur[a.nodeId] = a.answer;
     answersByReqAsset.set(k, cur);
   }
 
@@ -1934,7 +1944,7 @@ export async function aiFillAssessmentAll(projectId: string) {
         assetKey: string;
         label: string;
         metadata: Record<string, string>;
-        answeredPath: Array<{ nodeId: string; answer: "yes" | "no" }>;
+        answeredPath: Array<{ nodeId: string; answer: NodeAnswer }>;
         applicableTypes: AssessmentType[];
       };
       const iters: IterAssess[] = [];
@@ -1968,6 +1978,7 @@ export async function aiFillAssessmentAll(projectId: string) {
                 (d.assetId ?? null) ===
                   (it.assetKey === "__global__" ? null : it.assetKey),
             )
+            .filter((d) => d.answer === "yes" || d.answer === "no")
             .map((d) => ({
               nodeId: d.nodeId,
               answer: d.answer as "yes" | "no",
