@@ -24,11 +24,13 @@ import { Progress } from "@/components/ui/progress";
 import { MECHANISMS, STANDARDS, type StandardId } from "@/lib/mechanisms";
 import {
   DT_REQUIREMENTS,
+  requirementById,
   evaluateRequirementApplicability,
   evaluateNAFromRequirement,
   getApplicableKindsFor,
   matchAssetsForRequirement,
   walkTree,
+  type NodeAnswer,
 } from "@/lib/decision-trees";
 
 export default async function PublicSharePage({
@@ -139,8 +141,14 @@ export default async function PublicSharePage({
           if (req.naFromRequirement) {
             const linked = project.dtAnswers
               .filter((d) => d.requirementId === req.naFromRequirement!.requirementId && d.assetId === a.id)
-              .map((d) => ({ nodeId: d.nodeId, answer: d.answer as "yes" | "no" }));
-            if (evaluateNAFromRequirement(req, linked).applies) {
+              .map((d) => ({ nodeId: d.nodeId, answer: d.answer as NodeAnswer }));
+            if (
+              evaluateNAFromRequirement(
+                req,
+                linked,
+                requirementById(req.naFromRequirement!.requirementId),
+              ).applies
+            ) {
               totalDone += 1;
               na += 1;
               continue;
@@ -162,8 +170,14 @@ export default async function PublicSharePage({
         if (req.naFromRequirement) {
           const linked = project.dtAnswers
             .filter((d) => d.requirementId === req.naFromRequirement!.requirementId && d.assetId === null)
-            .map((d) => ({ nodeId: d.nodeId, answer: d.answer as "yes" | "no" }));
-          if (evaluateNAFromRequirement(req, linked).applies) {
+            .map((d) => ({ nodeId: d.nodeId, answer: d.answer as NodeAnswer }));
+          if (
+            evaluateNAFromRequirement(
+              req,
+              linked,
+              requirementById(req.naFromRequirement!.requirementId),
+            ).applies
+          ) {
             totalDone += 1;
             na += 1;
             continue;
@@ -337,12 +351,13 @@ function answersForAssetReq(
   rows: AnswerRow[],
   assetId: string | null,
   requirementId: string,
-): Record<string, "yes" | "no"> {
-  const out: Record<string, "yes" | "no"> = {};
+): Record<string, NodeAnswer> {
+  const out: Record<string, NodeAnswer> = {};
   for (const r of rows) {
     if (r.requirementId !== requirementId) continue;
     if ((r.assetId ?? null) !== assetId) continue;
-    if (r.answer === "yes" || r.answer === "no") out[r.nodeId] = r.answer;
+    if (r.answer === "yes" || r.answer === "no" || r.answer === "na")
+      out[r.nodeId] = r.answer;
   }
   return out;
 }

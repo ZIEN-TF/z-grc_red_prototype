@@ -25,6 +25,7 @@ import {
   getApplicableKindsFor,
   matchAssetsForRequirement,
   walkTree,
+  requirementById,
   type NodeAnswer,
 } from "@/lib/decision-trees";
 import {
@@ -197,9 +198,13 @@ export default async function DTOverviewPage({
             )
             .map((d) => ({
               nodeId: d.nodeId,
-              answer: d.answer as "yes" | "no",
+              answer: d.answer as NodeAnswer,
             }));
-          const gate = evaluateNAFromRequirement(req, linked);
+          const gate = evaluateNAFromRequirement(
+            req,
+            linked,
+            requirementById(req.naFromRequirement!.requirementId),
+          );
           if (gate.applies) {
             return {
               asset: a,
@@ -241,9 +246,13 @@ export default async function DTOverviewPage({
           )
           .map((d) => ({
             nodeId: d.nodeId,
-            answer: d.answer as "yes" | "no",
+            answer: d.answer as NodeAnswer,
           }));
-        const gate = evaluateNAFromRequirement(req, linked);
+        const gate = evaluateNAFromRequirement(
+          req,
+          linked,
+          requirementById(req.naFromRequirement!.requirementId),
+        );
         if (gate.applies) {
           return {
             req,

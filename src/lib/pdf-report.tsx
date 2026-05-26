@@ -13,6 +13,7 @@ import {
 } from "@react-pdf/renderer";
 import {
   DT_REQUIREMENTS,
+  requirementById,
   evaluateRequirementApplicability,
   evaluateNAFromRequirement,
   getApplicableKindsFor,
@@ -25,6 +26,7 @@ import {
   type DTRequirement,
   type EvidenceField,
   type AssessmentType,
+  type NodeAnswer,
 } from "@/lib/decision-trees";
 import { kindConfig } from "@/lib/asset-kinds";
 import { STANDARDS, type StandardId } from "@/lib/mechanisms";
@@ -220,8 +222,12 @@ function buildSection(args: {
                 d.requirementId === req.naFromRequirement!.requirementId &&
                 d.assetId === a.id,
             )
-            .map((d) => ({ nodeId: d.nodeId, answer: d.answer as "yes" | "no" }));
-          const res = evaluateNAFromRequirement(req, linked);
+            .map((d) => ({ nodeId: d.nodeId, answer: d.answer as NodeAnswer }));
+          const res = evaluateNAFromRequirement(
+            req,
+            linked,
+            requirementById(req.naFromRequirement!.requirementId),
+          );
           if (res.applies) {
             iterations.push({
               assetLabel: `${a.name} · ${kindConfig(a.kind)?.title_ko ?? a.kind}`,
@@ -233,10 +239,11 @@ function buildSection(args: {
             continue;
           }
         }
-        const answers: Record<string, "yes" | "no"> = {};
+        const answers: Record<string, NodeAnswer> = {};
         for (const d of dtAnswers) {
           if (d.requirementId === req.id && d.assetId === a.id) {
-            answers[d.nodeId] = d.answer as "yes" | "no";
+            if (d.answer === "yes" || d.answer === "no" || d.answer === "na")
+              answers[d.nodeId] = d.answer;
           }
         }
         if (Object.keys(answers).length === 0) {
@@ -270,8 +277,14 @@ function buildSection(args: {
               d.requirementId === req.naFromRequirement!.requirementId &&
               d.assetId === null,
           )
-          .map((d) => ({ nodeId: d.nodeId, answer: d.answer as "yes" | "no" }));
-        if (evaluateNAFromRequirement(req, linked).applies) {
+          .map((d) => ({ nodeId: d.nodeId, answer: d.answer as NodeAnswer }));
+        if (
+          evaluateNAFromRequirement(
+            req,
+            linked,
+            requirementById(req.naFromRequirement!.requirementId),
+          ).applies
+        ) {
           iterations.push({
             assetLabel: null,
             status: "auto_na",
@@ -282,10 +295,11 @@ function buildSection(args: {
         }
       }
       if (iterations.length === 0) {
-        const answers: Record<string, "yes" | "no"> = {};
+        const answers: Record<string, NodeAnswer> = {};
         for (const d of dtAnswers) {
           if (d.requirementId === req.id && d.assetId === null) {
-            answers[d.nodeId] = d.answer as "yes" | "no";
+            if (d.answer === "yes" || d.answer === "no" || d.answer === "na")
+              answers[d.nodeId] = d.answer;
           }
         }
         if (Object.keys(answers).length > 0) {
@@ -325,7 +339,7 @@ function buildIter(
   _assetId: string | null,
   assetLabel: string | null,
   assetKind: string | null,
-  answers: Record<string, "yes" | "no">,
+  answers: Record<string, NodeAnswer>,
   evidenceMap: Map<string, string>,
   assessmentMap: Map<string, any>,
   assessTypes: AssessmentType[],

@@ -23,6 +23,7 @@ import { MECHANISMS, STANDARDS, type StandardId } from "@/lib/mechanisms";
 import { kindConfig } from "@/lib/asset-kinds";
 import {
   DT_REQUIREMENTS,
+  requirementById,
   evaluateRequirementApplicability,
   evaluateNAFromRequirement,
   getApplicableKindsFor,
@@ -31,6 +32,7 @@ import {
   assessmentsFor,
   type DTOutcome,
   type AssessmentType,
+  type NodeAnswer,
 } from "@/lib/decision-trees";
 import { AssessmentForm } from "./assessment-form";
 import { LockedBanner } from "../locked-banner";
@@ -213,17 +215,24 @@ export default async function AssessmentPage({
             )
             .map((d) => ({
               nodeId: d.nodeId,
-              answer: d.answer as "yes" | "no",
+              answer: d.answer as NodeAnswer,
             }));
-          if (evaluateNAFromRequirement(req, linked).applies) {
+          if (
+            evaluateNAFromRequirement(
+              req,
+              linked,
+              requirementById(req.naFromRequirement!.requirementId),
+            ).applies
+          ) {
             continue; // skip assessment for auto-NA assets
           }
         }
         // Look up own DT outcome
-        const answers: Record<string, "yes" | "no"> = {};
+        const answers: Record<string, NodeAnswer> = {};
         for (const d of project.dtAnswers) {
           if (d.requirementId === req.id && d.assetId === a.id) {
-            answers[d.nodeId] = d.answer as "yes" | "no";
+            if (d.answer === "yes" || d.answer === "no" || d.answer === "na")
+              answers[d.nodeId] = d.answer;
           }
         }
         if (Object.keys(answers).length === 0) continue;
@@ -247,14 +256,22 @@ export default async function AssessmentPage({
           )
           .map((d) => ({
             nodeId: d.nodeId,
-            answer: d.answer as "yes" | "no",
+            answer: d.answer as NodeAnswer,
           }));
-        if (evaluateNAFromRequirement(req, linked).applies) continue;
+        if (
+          evaluateNAFromRequirement(
+            req,
+            linked,
+            requirementById(req.naFromRequirement!.requirementId),
+          ).applies
+        )
+          continue;
       }
-      const answers: Record<string, "yes" | "no"> = {};
+      const answers: Record<string, NodeAnswer> = {};
       for (const d of project.dtAnswers) {
         if (d.requirementId === req.id && d.assetId === null) {
-          answers[d.nodeId] = d.answer as "yes" | "no";
+          if (d.answer === "yes" || d.answer === "no" || d.answer === "na")
+            answers[d.nodeId] = d.answer;
         }
       }
       if (Object.keys(answers).length === 0) continue;

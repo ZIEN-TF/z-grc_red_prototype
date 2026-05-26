@@ -1731,12 +1731,21 @@ export async function aiFillEvidenceAll(projectId: string) {
                 (d.assetId ?? null) ===
                   (it.assetKey === "__global__" ? null : it.assetKey),
             )
-            .filter((d) => d.answer === "yes" || d.answer === "no")
+            .filter(
+              (d) => d.answer === "yes" || d.answer === "no" || d.answer === "na",
+            )
             .map((d) => ({
               nodeId: d.nodeId,
-              answer: d.answer as "yes" | "no",
+              answer: d.answer as NodeAnswer,
             }));
-          if (evaluateNAFromRequirement(req, linked).applies) continue;
+          if (
+            evaluateNAFromRequirement(
+              req,
+              linked,
+              requirementById(req.naFromRequirement!.requirementId),
+            ).applies
+          )
+            continue;
         }
 
         const ans = answersByReqAsset.get(`${req.id}::${it.assetKey}`) ?? {};
@@ -1978,12 +1987,21 @@ export async function aiFillAssessmentAll(projectId: string) {
                 (d.assetId ?? null) ===
                   (it.assetKey === "__global__" ? null : it.assetKey),
             )
-            .filter((d) => d.answer === "yes" || d.answer === "no")
+            .filter(
+              (d) => d.answer === "yes" || d.answer === "no" || d.answer === "na",
+            )
             .map((d) => ({
               nodeId: d.nodeId,
-              answer: d.answer as "yes" | "no",
+              answer: d.answer as NodeAnswer,
             }));
-          if (evaluateNAFromRequirement(req, linked).applies) continue;
+          if (
+            evaluateNAFromRequirement(
+              req,
+              linked,
+              requirementById(req.naFromRequirement!.requirementId),
+            ).applies
+          )
+            continue;
         }
 
         // Only evaluate iterations whose DT outcome is PASS or FAIL — the

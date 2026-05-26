@@ -127,7 +127,13 @@ export type NAFromRequirement = {
   requirementId: string; // e.g., "P1.ACM-1"
   // If ANY of these (nodeId, answer) pairs was recorded for the same asset
   // in the linked requirement, this requirement is automatically NA.
-  ifAnyAnswer: Array<{ nodeId: string; answer: "yes" | "no" }>;
+  ifAnyAnswer?: Array<{ nodeId: string; answer: "yes" | "no" }>;
+  // Outcome-based gate: if the linked requirement's resolved outcome (walking
+  // its tree with the same asset's answers) is one of these, this requirement
+  // is automatically NA. More robust than ifAnyAnswer because it catches every
+  // path to the outcome — including node-level "na" answers and AI-produced
+  // ones — not just specific (node, answer) pairs.
+  ifLinkedOutcomeIn?: DTOutcome[];
   reason_ko?: string;
   reason_en?: string;
 };
@@ -275,26 +281,52 @@ export function evaluateRequirementApplicability(
 
 // Evaluate `naFromRequirement` against the linked requirement's answers
 // for the same asset. Returns the matched gate when auto-NA applies.
+//
+// Two gate styles (a gate may set either or both):
+//   - ifAnyAnswer: matches specific (nodeId, answer) pairs.
+//   - ifLinkedOutcomeIn: walks the linked requirement's tree with the same
+//     asset's answers and matches its resolved outcome. Requires
+//     `linkedRequirement` to be passed; catches every path to the outcome
+//     (including node-level "na" and AI-produced answers).
 export function evaluateNAFromRequirement(
   req: DTRequirement,
-  linkedAnswers: Array<{ nodeId: string; answer: "yes" | "no" }>,
+  linkedAnswers: Array<{ nodeId: string; answer: NodeAnswer }>,
+  linkedRequirement?: DTRequirement,
 ):
   | { applies: false }
   | {
       applies: true;
       gate: NAFromRequirement;
-      matched: { nodeId: string; answer: "yes" | "no" };
+      matched?: { nodeId: string; answer: NodeAnswer };
     } {
   const gate = req.naFromRequirement;
   if (!gate) return { applies: false };
-  for (const pair of gate.ifAnyAnswer) {
-    const hit = linkedAnswers.find(
-      (a) => a.nodeId === pair.nodeId && a.answer === pair.answer,
-    );
-    if (hit) {
-      return { applies: true, gate, matched: hit };
+
+  if (gate.ifAnyAnswer) {
+    for (const pair of gate.ifAnyAnswer) {
+      const hit = linkedAnswers.find(
+        (a) => a.nodeId === pair.nodeId && a.answer === pair.answer,
+      );
+      if (hit) {
+        return { applies: true, gate, matched: hit };
+      }
     }
   }
+
+  if (gate.ifLinkedOutcomeIn && linkedRequirement) {
+    const map: Record<string, NodeAnswer> = {};
+    for (const a of linkedAnswers) map[a.nodeId] = a.answer;
+    if (Object.keys(map).length > 0) {
+      const walk = walkTree(linkedRequirement, map);
+      if (
+        walk.kind === "outcome" &&
+        gate.ifLinkedOutcomeIn.includes(walk.outcome)
+      ) {
+        return { applies: true, gate };
+      }
+    }
+  }
+
   return { applies: false };
 }
 

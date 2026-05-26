@@ -24,6 +24,7 @@ import { MECHANISMS, STANDARDS, type StandardId } from "@/lib/mechanisms";
 import { kindConfig } from "@/lib/asset-kinds";
 import {
   DT_REQUIREMENTS,
+  requirementById,
   evaluateRequirementApplicability,
   evaluateNAFromRequirement,
   getApplicableKindsFor,
@@ -205,12 +206,20 @@ export default async function EvidencePage({
               d.requirementId === req.naFromRequirement!.requirementId &&
               (d.assetId ?? null) === it.assetId,
           )
-          .filter((d) => d.answer === "yes" || d.answer === "no")
+          .filter(
+            (d) => d.answer === "yes" || d.answer === "no" || d.answer === "na",
+          )
           .map((d) => ({
             nodeId: d.nodeId,
-            answer: d.answer as "yes" | "no",
+            answer: d.answer as NodeAnswer,
           }));
-        if (evaluateNAFromRequirement(req, linked).applies) {
+        if (
+          evaluateNAFromRequirement(
+            req,
+            linked,
+            requirementById(req.naFromRequirement!.requirementId),
+          ).applies
+        ) {
           continue;
         }
       }

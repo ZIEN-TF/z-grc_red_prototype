@@ -28,6 +28,7 @@ import {
   DT_REQUIREMENTS,
   evaluateRequirementApplicability,
   evaluateNAFromRequirement,
+  requirementById,
   getApplicableKindsFor,
   matchAssetsForRequirement,
   walkTree,
@@ -1045,8 +1046,12 @@ function buildSection(args: BuildSectionArgs): StandardSection {
                 d.requirementId === req.naFromRequirement!.requirementId &&
                 d.assetId === a.id,
             )
-            .map((d) => ({ nodeId: d.nodeId, answer: d.answer as "yes" | "no" }));
-          const res = evaluateNAFromRequirement(req, linked);
+            .map((d) => ({ nodeId: d.nodeId, answer: d.answer as NodeAnswer }));
+          const res = evaluateNAFromRequirement(
+            req,
+            linked,
+            requirementById(req.naFromRequirement!.requirementId),
+          );
           if (res.applies) {
             autoNA = true;
             autoNAReason = req.naFromRequirement.reason_ko;
@@ -1094,8 +1099,12 @@ function buildSection(args: BuildSectionArgs): StandardSection {
               d.requirementId === req.naFromRequirement!.requirementId &&
               d.assetId === null,
           )
-          .map((d) => ({ nodeId: d.nodeId, answer: d.answer as "yes" | "no" }));
-        const res = evaluateNAFromRequirement(req, linked);
+          .map((d) => ({ nodeId: d.nodeId, answer: d.answer as NodeAnswer }));
+        const res = evaluateNAFromRequirement(
+          req,
+          linked,
+          requirementById(req.naFromRequirement!.requirementId),
+        );
         if (res.applies) {
           autoNA = true;
           autoNAReason = req.naFromRequirement.reason_ko;

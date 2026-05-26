@@ -623,10 +623,7 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
     ],
     naFromRequirement: {
       requirementId: "P1.SSM-1",
-      ifAnyAnswer: [
-        { nodeId: "DN-1", answer: "yes" }, // SSM-1 NOT APPLICABLE (environment-protected)
-        { nodeId: "DN-2", answer: "no" }, // SSM-1 FAIL (no secure storage mechanism)
-      ],
+      ifLinkedOutcomeIn: ["not_applicable", "fail"],
       reason_ko: "SSM-1이 NOT APPLICABLE 또는 FAIL인 자산은 SSM-2 평가 대상이 아닙니다.",
       reason_en: "Assets whose SSM-1 outcome is NOT APPLICABLE or FAIL are out of scope for SSM-2.",
     },
@@ -661,10 +658,7 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
     ],
     naFromRequirement: {
       requirementId: "P1.SSM-1",
-      ifAnyAnswer: [
-        { nodeId: "DN-1", answer: "yes" }, // SSM-1 NOT APPLICABLE (environment-protected)
-        { nodeId: "DN-2", answer: "no" }, // SSM-1 FAIL (no secure storage mechanism)
-      ],
+      ifLinkedOutcomeIn: ["not_applicable", "fail"],
       reason_ko: "SSM-1이 NOT APPLICABLE 또는 FAIL인 자산은 SSM-3 평가 대상이 아닙니다.",
       reason_en: "Assets whose SSM-1 outcome is NOT APPLICABLE or FAIL are out of scope for SSM-3.",
     },

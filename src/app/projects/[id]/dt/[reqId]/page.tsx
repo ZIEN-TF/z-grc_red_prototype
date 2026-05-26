@@ -135,7 +135,10 @@ export default async function RequirementPage({
 
   // If this requirement has `naFromRequirement`, load the linked requirement's
   // answers for the SAME project so each asset iteration can auto-NA.
-  const linkedAnswersByAsset: Record<string, { nodeId: string; answer: "yes" | "no" }[]> = {};
+  const linkedAnswersByAsset: Record<string, { nodeId: string; answer: NodeAnswer }[]> = {};
+  const linkedReq = req.naFromRequirement
+    ? requirementById(req.naFromRequirement.requirementId)
+    : undefined;
   let naGateMessage: { reason_ko?: string; reason_en?: string; linkedReqId: string } | null = null;
   if (req.naFromRequirement) {
     const linkedReqId = req.naFromRequirement.requirementId;
@@ -145,10 +148,9 @@ export default async function RequirementPage({
     for (const a of linked) {
       const k = a.assetId ?? "__global__";
       if (!linkedAnswersByAsset[k]) linkedAnswersByAsset[k] = [];
-      linkedAnswersByAsset[k].push({
-        nodeId: a.nodeId,
-        answer: a.answer as "yes" | "no",
-      });
+      if (a.answer === "yes" || a.answer === "no" || a.answer === "na") {
+        linkedAnswersByAsset[k].push({ nodeId: a.nodeId, answer: a.answer });
+      }
     }
     naGateMessage = {
       reason_ko: req.naFromRequirement.reason_ko,
@@ -162,12 +164,12 @@ export default async function RequirementPage({
   if (req.naFromRequirement) {
     for (const a of matchingAssets) {
       const linked = linkedAnswersByAsset[a.id] ?? [];
-      const res = evaluateNAFromRequirement(req, linked);
+      const res = evaluateNAFromRequirement(req, linked, linkedReq);
       if (res.applies) autoNAByAsset[a.id] = true;
     }
     if (!req.iterateOver) {
       const linked = linkedAnswersByAsset["__global__"] ?? [];
-      const res = evaluateNAFromRequirement(req, linked);
+      const res = evaluateNAFromRequirement(req, linked, linkedReq);
       if (res.applies) autoNAByAsset["__global__"] = true;
     }
   }
