@@ -621,6 +621,15 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
       { id: "IC.SSM-2.SSM.ComplianceEvidence", scope: "per_asset", multiline: true, group_ko: "준수 증빙", group_en: "Compliance Evidence", prompt_ko: "(해당 시) SSM이 준수하는 인정된 보안 표준·인증 스킴의 증빙을 제시하세요.", prompt_en: "(If claimed) Provide evidence of recognized security standards/certifications the SSM complies with." },
       { id: "E.Just.DT.SSM-2", scope: "per_asset", required: true, showPathAbove: true, multiline: true, group_ko: "Decision Tree 정당화", group_en: "DT Justification", prompt_ko: "구현 카테고리에 해당하는 Info 필드를 근거로 DN-1 결정을 정당화하세요.", prompt_en: "Justify DN-1 based on the Info field matching the implementation category." },
     ],
+    naFromRequirement: {
+      requirementId: "P1.SSM-1",
+      ifAnyAnswer: [
+        { nodeId: "DN-1", answer: "yes" }, // SSM-1 NOT APPLICABLE (environment-protected)
+        { nodeId: "DN-2", answer: "no" }, // SSM-1 FAIL (no secure storage mechanism)
+      ],
+      reason_ko: "SSM-1이 NOT APPLICABLE 또는 FAIL인 자산은 SSM-2 평가 대상이 아닙니다.",
+      reason_en: "Assets whose SSM-1 outcome is NOT APPLICABLE or FAIL are out of scope for SSM-2.",
+    },
     rootNodeId: "DN-1",
     nodes: {
       "DN-1": { id: "DN-1", text_en: "Is the integrity of the asset protected to ensure that attacks on secure storage do not lead to its manipulation?", text_ko: "저장소 공격으로 해당 자산이 조작되지 않도록 무결성이 보호되나요?", yes: PASS, no: FAIL },
@@ -650,6 +659,15 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
       { id: "IC.SSM-3.SSM.ComplianceEvidence", scope: "per_asset", multiline: true, group_ko: "준수 증빙", group_en: "Compliance Evidence", prompt_ko: "(해당 시) SSM이 준수하는 인정된 보안 표준·인증 스킴의 증빙을 제시하세요.", prompt_en: "(If claimed) Provide evidence of recognized security standards/certifications the SSM complies with." },
       { id: "E.Just.DT.SSM-3", scope: "per_asset", required: true, showPathAbove: true, multiline: true, group_ko: "Decision Tree 정당화", group_en: "DT Justification", prompt_ko: "구현 카테고리에 해당하는 Info 필드를 근거로 DN-1 결정을 정당화하세요.", prompt_en: "Justify DN-1 based on the Info field matching the implementation category." },
     ],
+    naFromRequirement: {
+      requirementId: "P1.SSM-1",
+      ifAnyAnswer: [
+        { nodeId: "DN-1", answer: "yes" }, // SSM-1 NOT APPLICABLE (environment-protected)
+        { nodeId: "DN-2", answer: "no" }, // SSM-1 FAIL (no secure storage mechanism)
+      ],
+      reason_ko: "SSM-1이 NOT APPLICABLE 또는 FAIL인 자산은 SSM-3 평가 대상이 아닙니다.",
+      reason_en: "Assets whose SSM-1 outcome is NOT APPLICABLE or FAIL are out of scope for SSM-3.",
+    },
     rootNodeId: "DN-1",
     nodes: {
       "DN-1": { id: "DN-1", text_en: "Is the secrecy of the confidential security parameter and confidential network function configuration protected so that attacks on secure storage do not lead to its disclosure?", text_ko: "저장소 공격으로 기밀 보안 파라미터·네트워크 기능 설정이 노출되지 않도록 기밀성이 보호되나요?", yes: PASS, no: FAIL },
@@ -669,7 +687,7 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
     iterateOver: {
       description_en: "For each communication of network/security assets via a network interface",
       description_ko: "네트워크 인터페이스를 통한 각 network/security asset 통신에 대해",
-      kinds: ["data_flow"],
+      kinds: ["security_asset", "network_asset", "network_interface"],
     },
     evidenceFields: [
       { id: "E.Info.SCM-1.NetworkInterface", scope: "per_asset", required: true, multiline: true, group_ko: "네트워크 인터페이스", group_en: "Network Interface", prompt_ko: "통신에 사용된 네트워크 인터페이스의 물리적 특성(무선·유선·광·음향), 논리적 특성(프로토콜·버전·SW 라이브러리), 설정을 기술하세요.", prompt_en: "Describe the network interface physical characteristics (radio/wired/optical/acoustic), logical characteristics (protocol/version/SW library), and configuration." },
@@ -698,7 +716,7 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
     iterateOver: {
       description_en: "For each communication of security/network assets via a secure communication mechanism required by SCM-1",
       description_ko: "SCM-1에서 요구되는 보안 통신 메커니즘을 통한 각 security/network asset 통신에 대해",
-      kinds: ["data_flow"],
+      kinds: ["security_asset", "network_asset", "network_interface"],
     },
     evidenceFields: [
       { id: "E.Info.SCM-2.Asset.Com", scope: "per_asset", required: true, multiline: true, group_ko: "자산 통신 사용 사례", group_en: "Asset Communication", prompt_ko: "이 통신에서 다루어지는 security/network asset의 사용 사례를 기술하세요.", prompt_en: "Describe the use case where the asset is communicated." },
@@ -731,7 +749,7 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
     iterateOver: {
       description_en: "For each communication where confidentiality protection is needed",
       description_ko: "기밀성 보호가 필요한 각 통신에 대해",
-      kinds: ["data_flow"],
+      kinds: ["security_asset", "network_asset", "network_interface"],
     },
     evidenceFields: [
       { id: "E.Info.SCM-3.Asset.Com", scope: "per_asset", required: true, multiline: true, group_ko: "자산 통신 사용 사례", group_en: "Asset Communication", prompt_ko: "기밀성이 필요한 이 통신의 사용 사례를 기술하세요.", prompt_en: "Describe the use case where the asset is communicated (confidentiality needed)." },
@@ -762,7 +780,7 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
     iterateOver: {
       description_en: "For each communication of security/network assets",
       description_ko: "각 security/network asset 통신에 대해",
-      kinds: ["data_flow"],
+      kinds: ["security_asset", "network_asset", "network_interface"],
     },
     evidenceFields: [
       { id: "E.Info.SCM-4.Asset.Com", scope: "per_asset", required: true, multiline: true, group_ko: "자산 통신 사용 사례", group_en: "Asset Communication", prompt_ko: "재전송 방지가 필요한 이 통신의 사용 사례를 기술하세요.", prompt_en: "Describe the use case where the asset is communicated (replay protection needed)." },

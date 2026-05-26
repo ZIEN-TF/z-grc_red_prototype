@@ -505,11 +505,15 @@ export const ASSET_KINDS: AssetKindConfig[] = [
   {
     kind: "data_flow",
     category: "asset",
+    // Removed from the asset inventory: SCM now iterates security/network
+    // assets and network interfaces directly. Kept defined (hidden) so any
+    // pre-existing data_flow rows still resolve via kindConfig().
+    hideFromInventory: true,
     title_ko: "데이터 흐름",
     title_en: "Data Flows",
-    description_ko: "기기가 송·수신하는 데이터의 상대방과 목적. SCM·DLM 평가의 기반이 됩니다.",
+    description_ko: "(사용 안 함) 기기가 송·수신하는 데이터의 상대방과 목적.",
     description_en:
-      "Peers the device communicates with and the purpose of each flow. Feeds SCM / DLM evaluation.",
+      "(Deprecated) Peers the device communicates with and the purpose of each flow.",
     namePlaceholder: "예: 클라우드 텔레메트리 업로드 / e.g., Telemetry upload to cloud",
     listColumns: ["peer", "direction", "dataCategory"],
     metadataFields: [
