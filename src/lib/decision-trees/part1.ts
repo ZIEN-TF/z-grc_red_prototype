@@ -725,6 +725,12 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
       { id: "E.Info.SCM-2.SCM.ThreatProtection", scope: "per_asset", required: true, multiline: true, group_ko: "위협 보호", group_en: "Threat Protection", prompt_ko: "Spoofing 및 Tampering 위협에 대한 메커니즘의 보호 방식을 기술하세요.", prompt_en: "Describe how the mechanism protects against spoofing and tampering." },
       { id: "E.Just.DT.SCM-2", scope: "per_asset", required: true, showPathAbove: true, multiline: true, group_ko: "Decision Tree 정당화", group_en: "DT Justification", prompt_ko: "위 Info(Asset.Com, SCM.Capabilities, ThreatProtection 등)를 근거로 DN-1/DN-2 결정을 정당화하세요.", prompt_en: "Justify DN-1/DN-2 based on Asset.Com, SCM.Capabilities, ThreatProtection." },
     ],
+    naFromRequirement: {
+      requirementId: "P1.SCM-1",
+      ifLinkedOutcomeIn: ["not_applicable", "fail"],
+      reason_ko: "SCM-1이 NOT APPLICABLE 또는 FAIL인 자산은 SCM-2 평가 대상이 아닙니다.",
+      reason_en: "Assets whose SCM-1 outcome is NOT APPLICABLE or FAIL are out of scope for SCM-2.",
+    },
     rootNodeId: "DN-1",
     nodes: {
       "DN-1": { id: "DN-1", text_en: "Are best practices applied to protect the integrity and authenticity of the communicated asset?", text_ko: "통신 자산의 무결성·진본성을 보호하기 위해 모범 사례가 적용되나요?", yes: PASS, no: GOTO("DN-2") },
@@ -756,6 +762,12 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
       { id: "E.Info.SCM-3.SCM.ThreatProtection", scope: "per_asset", required: true, multiline: true, group_ko: "위협 보호", group_en: "Threat Protection", prompt_ko: "Information Disclosure 및 Elevation of Privilege 위협 보호 방식을 기술하세요.", prompt_en: "Describe protection against information disclosure and elevation of privilege." },
       { id: "E.Just.DT.SCM-3", scope: "per_asset", required: true, showPathAbove: true, multiline: true, group_ko: "Decision Tree 정당화", group_en: "DT Justification", prompt_ko: "위 Info(Asset.Com, SCM.Capabilities, ThreatProtection 등)를 근거로 DN-1/DN-2 결정을 정당화하세요.", prompt_en: "Justify DN-1/DN-2 based on Asset.Com, SCM.Capabilities, ThreatProtection." },
     ],
+    naFromRequirement: {
+      requirementId: "P1.SCM-1",
+      ifLinkedOutcomeIn: ["not_applicable", "fail"],
+      reason_ko: "SCM-1이 NOT APPLICABLE 또는 FAIL인 자산은 SCM-3 평가 대상이 아닙니다.",
+      reason_en: "Assets whose SCM-1 outcome is NOT APPLICABLE or FAIL are out of scope for SCM-3.",
+    },
     rootNodeId: "DN-1",
     nodes: {
       "DN-1": { id: "DN-1", text_en: "Is best practice applied to protect confidentiality of the communicated asset?", text_ko: "통신 자산의 기밀성을 보호하기 위해 모범 사례가 적용되나요?", yes: PASS, no: GOTO("DN-2") },
@@ -787,6 +799,12 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
       { id: "E.Info.SCM-4.SCM.Repudiation", scope: "per_asset", required: true, multiline: true, group_ko: "위협 보호", group_en: "Threat Protection", prompt_ko: "Repudiation(부인) 위협에 대한 보호 방식을 기술하세요.", prompt_en: "Describe protection against repudiation threat." },
       { id: "E.Just.DT.SCM-4", scope: "per_asset", required: true, showPathAbove: true, multiline: true, group_ko: "Decision Tree 정당화", group_en: "DT Justification", prompt_ko: "위 Info(Asset.Com, SCM.Capabilities, Repudiation 등)를 근거로 DN-1/DN-3 결정을 정당화하세요.", prompt_en: "Justify DN-1/DN-3 based on Asset.Com, SCM.Capabilities, Repudiation." },
     ],
+    naFromRequirement: {
+      requirementId: "P1.SCM-1",
+      ifLinkedOutcomeIn: ["not_applicable", "fail"],
+      reason_ko: "SCM-1이 NOT APPLICABLE 또는 FAIL인 자산은 SCM-4 평가 대상이 아닙니다.",
+      reason_en: "Assets whose SCM-1 outcome is NOT APPLICABLE or FAIL are out of scope for SCM-4.",
+    },
     rootNodeId: "DN-1",
     nodes: {
       "DN-1": { id: "DN-1", text_en: "Are best practices applied to protect the communication asset against replay attacks?", text_ko: "해당 통신을 재전송 공격으로부터 보호하기 위해 모범 사례가 적용되나요?", yes: PASS, no: GOTO("DN-2") },
