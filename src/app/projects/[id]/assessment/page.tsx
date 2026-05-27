@@ -380,7 +380,6 @@ export default async function AssessmentPage({
             <details
               key={code}
               className="group rounded-lg border bg-card"
-              open
             >
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-4 py-3 hover:bg-muted/40">
                 <div className="flex items-center gap-2">
