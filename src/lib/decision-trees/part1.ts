@@ -587,6 +587,7 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
       kinds: ["security_asset", "network_asset"],
     },
     evidenceFields: [
+      { id: "E.Info.SSM-1.Asset", scope: "per_asset", required: true, multiline: true, group_ko: "저장 자산", group_en: "Stored Asset", prompt_ko: "기기에 영구 저장되는 이 security/network asset과 그 저장 위치·방식을 기술하세요. (PASS·FAIL·NOT APPLICABLE 모든 경우에 작성)", prompt_en: "Describe this persistently-stored security/network asset and how/where it is stored (fill for every outcome, including FAIL)." },
       { id: "E.Info.SSM-1.Asset.Environment", scope: "per_asset", multiline: true, dependsOnAnswer: { nodeId: "DN-1", answer: "yes" }, group_ko: "환경 통제 (DN-1 YES)", group_en: "Environment Measures", prompt_ko: "저장된 자산에 대한 접근을 인가된 엔티티로 제한하는 대상 운영 환경의 물리적·논리적 수단과 인증·인가 방식을 기술하세요.", prompt_en: "Describe environmental physical/logical measures limiting storage access, and how entities are authenticated/authorized." },
       { id: "E.Info.SSM-1.Asset.SSM", scope: "per_asset", multiline: true, dependsOnAnswer: { nodeId: "DN-2", answer: "yes" }, group_ko: "보안 저장 메커니즘 (DN-2 YES)", group_en: "SSM", prompt_ko: "이 자산의 영구 저장을 담당하는 보안 저장 메커니즘을 기술하세요.", prompt_en: "Describe the secure storage mechanism providing persistent storage for this asset." },
       { id: "E.Just.DT.SSM-1", scope: "per_asset", required: true, showPathAbove: true, multiline: true, group_ko: "Decision Tree 정당화", group_en: "DT Justification", prompt_ko: "위 Info를 근거로 선택 경로를 정당화하세요.", prompt_en: "Justify the selected path based on the above Info fields." },
@@ -964,6 +965,7 @@ export const P1_REQUIREMENTS: DTRequirement[] = [
       metadataIn: { field: "type", values: ["key"] },
     },
     evidenceFields: [
+      { id: "E.Info.CCK-3.CCK", scope: "per_asset", required: true, multiline: true, group_ko: "사전 설치 CCK", group_en: "Preinstalled CCK", prompt_ko: "기기에 사전 설치된 이 CCK 설명 (PASS·FAIL·NOT APPLICABLE 모든 경우에 작성)", prompt_en: "Description of this preinstalled CCK on the equipment (fill for every outcome, including FAIL)." },
       { id: "E.Info.CCK-3.CCK.Controlled", scope: "per_asset", multiline: true, dependsOnAnswer: { nodeId: "DN-2", answer: "yes" }, group_ko: "통제 조건 (DN-2 YES)", group_en: "Controlled Conditions", prompt_ko: "이 CCK로 수립되는 초기 신뢰 관계와 인가된 엔티티가 통제하는 조건을 기술하세요.", prompt_en: "Describe the initial trust relationship and the conditions controlled by an authorized entity." },
       { id: "E.Info.CCK-3.CCK.Shared", scope: "per_asset", multiline: true, dependsOnAnswer: { nodeId: "DN-3", answer: "yes" }, group_ko: "공유 파라미터 (DN-3 YES)", group_en: "Shared Parameter", prompt_ko: "이 CCK가 공유 파라미터로 기능하기 위한 의도된 기능을 기술하세요.", prompt_en: "Describe the equipment's functionalities requiring this CCK to be a shared parameter." },
       { id: "E.Info.CCK-3.CCK.Unique", scope: "per_asset", multiline: true, dependsOnAnswer: { nodeId: "DN-1", answer: "yes" }, group_ko: "고유성 (DN-1 YES)", group_en: "Practically Unique", prompt_ko: "이 CCK가 기기별로 실질적으로 고유함을 보장하는 방법을 기술하세요.", prompt_en: "Describe methods ensuring this CCK is practically unique per equipment." },
