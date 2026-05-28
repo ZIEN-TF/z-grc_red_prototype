@@ -76,6 +76,13 @@ type RequirementBlock = {
   iterations: IterationBlock[];
   /** Derived: overall status across iterations (worst-case for the summary). */
   aggregateStatus: IterationStatus;
+  /** Per-requirement functional assessment (assetId = null). Shown once. */
+  assessments: Array<{
+    type: AssessmentType;
+    testMethod: string;
+    testResult: string;
+    verdict: VerdictValue;
+  }>;
 };
 
 type StandardStats = {
@@ -734,6 +741,67 @@ function RequirementBlockCard({
             showAssessmentPlaceholder={showAssessmentPlaceholder}
           />
         ))}
+
+        {/* Per-requirement functional assessment (shown once) */}
+        {hideAssessments && showAssessmentPlaceholder && block.assessments.length > 0 && (
+          <section className="rounded-lg border bg-muted/10 p-4">
+            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              기능 평가 / Technical Assessment
+            </h4>
+            <div className="rounded-md border border-dashed bg-muted/20 p-3 text-center text-xs italic text-muted-foreground">
+              컨설턴트 평가 중입니다. 평가가 완료되면 본 섹션에 내용이 표시됩니다.
+            </div>
+          </section>
+        )}
+        {!hideAssessments && block.assessments.length > 0 && (
+          <section className="rounded-lg border bg-muted/10 p-4">
+            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              기능 평가 / Technical Assessment (요구사항 단위)
+            </h4>
+            <div className="space-y-2">
+              {block.assessments.map((a) => (
+                <div key={a.type} className="rounded-md border bg-muted/20 p-2.5">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <Badge
+                      variant="secondary"
+                      className={cn(
+                        "text-[10px]",
+                        a.type === "completeness" && "bg-blue-500/15 text-blue-700 dark:text-blue-400",
+                        a.type === "sufficiency" && "bg-violet-500/15 text-violet-700 dark:text-violet-400",
+                        a.type === "conceptual_completeness" && "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+                      )}
+                    >
+                      {ASSESSMENT_LABEL_KO[a.type]}
+                    </Badge>
+                    <VerdictBadge verdict={a.verdict} />
+                  </div>
+                  <div className="grid gap-2 text-xs sm:grid-cols-2">
+                    <div>
+                      <div className="text-[10px] font-medium text-muted-foreground">
+                        테스트 방법
+                      </div>
+                      <p className="mt-0.5 whitespace-pre-line">
+                        {a.testMethod || (
+                          <span className="italic text-muted-foreground">(미입력)</span>
+                        )}
+                      </p>
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-medium text-muted-foreground">
+                        테스트 결과
+                      </div>
+                      <p className="mt-0.5 whitespace-pre-line">
+                        {a.testResult || (
+                          <span className="italic text-muted-foreground">(미입력)</span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
       </CardContent>
     </Card>
   );
@@ -851,75 +919,8 @@ function IterationCard({
         </section>
       )}
 
-      {/* Assessment placeholder for customer view */}
-      {hideAssessments && showAssessmentPlaceholder && (
-        <section>
-          <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            기능 평가 / Technical Assessment
-          </h4>
-          <div className="rounded-md border border-dashed bg-muted/20 p-3 text-center text-xs italic text-muted-foreground">
-            컨설턴트 평가 중입니다. 평가가 완료되면 본 섹션에 내용이 표시됩니다.
-          </div>
-        </section>
-      )}
-
-      {/* Assessments */}
-      {!hideAssessments && iteration.assessments.length > 0 && (
-        <section>
-          <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            기능 평가 / Technical Assessment
-          </h4>
-          <div className="space-y-2">
-            {iteration.assessments.map((a) => (
-              <div key={a.type} className="rounded-md border bg-muted/20 p-2.5">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <Badge
-                    variant="secondary"
-                    className={cn(
-                      "text-[10px]",
-                      a.type === "completeness" && "bg-blue-500/15 text-blue-700 dark:text-blue-400",
-                      a.type === "sufficiency" && "bg-violet-500/15 text-violet-700 dark:text-violet-400",
-                      a.type === "conceptual_completeness" && "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-                    )}
-                  >
-                    {ASSESSMENT_LABEL_KO[a.type]}
-                  </Badge>
-                  <VerdictBadge verdict={a.verdict} />
-                </div>
-                <div className="grid gap-2 text-xs sm:grid-cols-2">
-                  <div>
-                    <div className="text-[10px] font-medium text-muted-foreground">
-                      테스트 방법
-                    </div>
-                    <p className="mt-0.5 whitespace-pre-line">
-                      {a.testMethod || (
-                        <span className="italic text-muted-foreground">
-                          (미입력)
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-medium text-muted-foreground">
-                      테스트 결과
-                    </div>
-                    <p className="mt-0.5 whitespace-pre-line">
-                      {a.testResult || (
-                        <span className="italic text-muted-foreground">
-                          (미입력)
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {requirement.evidenceFields === undefined && iteration.legacyNotes.length === 0 && iteration.evidenceFields.length === 0 && iteration.assessments.length === 0 && (
-        <p className="text-xs italic text-muted-foreground">증빙·평가 입력 없음</p>
+      {requirement.evidenceFields === undefined && iteration.legacyNotes.length === 0 && iteration.evidenceFields.length === 0 && (
+        <p className="text-xs italic text-muted-foreground">증빙 입력 없음</p>
       )}
     </div>
   );
@@ -1162,14 +1163,6 @@ function buildSection(args: BuildSectionArgs): StandardSection {
             reason: `증빙 필수 필드 미입력 (${missingRequired.length}건)${it.assetLabel ? ` — ${it.assetLabel.split(" · ")[0]}` : ""}`,
           });
         }
-        // Check for missing verdicts on assessments
-        const missingVerdicts = it.assessments.filter((a) => a.verdict === null);
-        if (missingVerdicts.length > 0) {
-          incomplete.push({
-            reqId: req.id,
-            reason: `기능 평가 판정 미입력 (${missingVerdicts.length}건)${it.assetLabel ? ` — ${it.assetLabel.split(" · ")[0]}` : ""}`,
-          });
-        }
       }
       if (it.status === "incomplete") {
         incomplete.push({
@@ -1179,8 +1172,29 @@ function buildSection(args: BuildSectionArgs): StandardSection {
       }
     }
 
+    // Per-requirement functional assessment (assetId = null), read once.
+    const blockAssessments: RequirementBlock["assessments"] =
+      aggregateStatus === "pass" || aggregateStatus === "fail"
+        ? assessTypes.map((t) => {
+            const rec = assessmentMap.get(`${req.id}::__global__::${t}`);
+            return {
+              type: t,
+              testMethod: rec?.testMethod ?? "",
+              testResult: rec?.testResult ?? "",
+              verdict: rec?.verdict ?? null,
+            };
+          })
+        : [];
+    const missingVerdicts = blockAssessments.filter((a) => a.verdict === null);
+    if (missingVerdicts.length > 0) {
+      incomplete.push({
+        reqId: req.id,
+        reason: `기능 평가 판정 미입력 (${missingVerdicts.length}건)`,
+      });
+    }
+
     if (iterations.length > 0) {
-      blocks.push({ req, iterations, aggregateStatus });
+      blocks.push({ req, iterations, aggregateStatus, assessments: blockAssessments });
     } else if (req.iterateOver) {
       // No matching assets for this requirement — still counted as a single N/A
       // (the requirement is effectively not applicable to this product because
@@ -1294,20 +1308,9 @@ function buildIter({
     }
   }
 
-  // Assessments (only for non-NA outcomes)
+  // Functional assessment is no longer per-asset; it is rendered once per
+  // requirement at the block level (assetId = null). Keep this empty here.
   const assessments: IterationBlock["assessments"] = [];
-  if (status === "pass" || status === "fail") {
-    for (const t of assessTypes) {
-      const key = `${req.id}::${assetId ?? "__global__"}::${t}`;
-      const rec = assessmentMap.get(key);
-      assessments.push({
-        type: t,
-        testMethod: rec?.testMethod ?? "",
-        testResult: rec?.testResult ?? "",
-        verdict: rec?.verdict ?? null,
-      });
-    }
-  }
 
   return {
     assetId,

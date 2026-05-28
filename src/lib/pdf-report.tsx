@@ -72,6 +72,14 @@ type IterationBlock = {
 type RequirementBlock = {
   req: DTRequirement;
   iterations: IterationBlock[];
+  // Per-requirement functional assessment (assetId = null), shown once.
+  assessments: Array<{
+    type: AssessmentType;
+    testMethod: string;
+    testResult: string;
+    verdict: VerdictValue;
+    attachmentFilename: string | null;
+  }>;
 };
 
 type StandardSection = {
@@ -318,16 +326,35 @@ function buildSection(args: {
       }
     }
 
+    let hasPassFail = false;
     for (const it of iterations) {
       stats.total++;
-      if (it.status === "pass") stats.pass++;
-      else if (it.status === "fail") stats.fail++;
-      else if (it.status === "not_applicable" || it.status === "auto_na") stats.na++;
+      if (it.status === "pass") {
+        stats.pass++;
+        hasPassFail = true;
+      } else if (it.status === "fail") {
+        stats.fail++;
+        hasPassFail = true;
+      } else if (it.status === "not_applicable" || it.status === "auto_na") stats.na++;
       else stats.pending++;
     }
 
+    // Per-requirement functional assessment (assetId = null), read once.
+    const blockAssessments: RequirementBlock["assessments"] = hasPassFail
+      ? assessTypes.map((t) => {
+          const rec = assessmentMap.get(`${req.id}::__global__::${t}`);
+          return {
+            type: t,
+            testMethod: rec?.testMethod ?? "",
+            testResult: rec?.testResult ?? "",
+            verdict: rec?.verdict ?? null,
+            attachmentFilename: rec?.attachmentFilename ?? null,
+          };
+        })
+      : [];
+
     if (iterations.length > 0) {
-      blocks.push({ req, iterations });
+      blocks.push({ req, iterations, assessments: blockAssessments });
     }
   }
 
@@ -367,20 +394,9 @@ function buildIter(
     }
   }
 
+  // Functional assessment is rendered once per requirement at the block level
+  // (assetId = null), not per asset iteration.
   const assessments: IterationBlock["assessments"] = [];
-  if (status === "pass" || status === "fail") {
-    for (const t of assessTypes) {
-      const key = `${req.id}::${_assetId ?? "__global__"}::${t}`;
-      const rec = assessmentMap.get(key);
-      assessments.push({
-        type: t,
-        testMethod: rec?.testMethod ?? "",
-        testResult: rec?.testResult ?? "",
-        verdict: rec?.verdict ?? null,
-        attachmentFilename: rec?.attachmentFilename ?? null,
-      });
-    }
-  }
 
   return { assetLabel, status, pathSummary, evidenceFields, assessments };
 }
@@ -689,6 +705,73 @@ function RequirementBlockPdf({
       {block.iterations.map((it, idx) => (
         <IterationPdf key={idx} iteration={it} hideAssessments={hideAssessments} />
       ))}
+
+      {/* Per-requirement functional assessment (shown once) */}
+      {hideAssessments && block.assessments.length > 0 && (
+        <View style={{ marginTop: 4 }}>
+          <Text style={[styles.muted, { fontSize: 7, fontWeight: "bold", marginBottom: 3 }]}>
+            기능 평가
+          </Text>
+          <View
+            style={{
+              padding: 6,
+              borderWidth: 0.5,
+              borderColor: colors.border,
+              borderStyle: "dashed",
+              borderRadius: 2,
+              backgroundColor: "#fafafa",
+            }}
+          >
+            <Text style={{ fontSize: 8, textAlign: "center", color: colors.muted }}>
+              컨설턴트 평가 중입니다. 평가가 완료되면 본 섹션에 내용이 표시됩니다.
+            </Text>
+          </View>
+        </View>
+      )}
+      {!hideAssessments && block.assessments.length > 0 && (
+        <View style={{ marginTop: 4 }}>
+          <Text style={[styles.muted, { fontSize: 7, fontWeight: "bold", marginBottom: 3 }]}>
+            기능 평가 (요구사항 단위)
+          </Text>
+          {block.assessments.map((a, i) => (
+            <View
+              key={i}
+              style={{
+                marginBottom: 3,
+                padding: 4,
+                borderWidth: 0.5,
+                borderColor: colors.border,
+                borderRadius: 2,
+                backgroundColor: "#fff",
+              }}
+            >
+              <View style={[styles.row, { justifyContent: "space-between", marginBottom: 2 }]}>
+                <Text style={{ fontSize: 8, fontWeight: "bold" }}>
+                  {ASSESSMENT_LABEL_KO[a.type]}
+                </Text>
+                <Text
+                  style={[styles.badge, { backgroundColor: verdictColor(a.verdict) }]}
+                >
+                  {verdictLabel(a.verdict)}
+                </Text>
+              </View>
+              <View style={{ marginBottom: 2 }}>
+                <Text style={[styles.muted, { fontSize: 7 }]}>테스트 방법</Text>
+                <Text style={{ fontSize: 8 }}>{a.testMethod || "(미입력)"}</Text>
+              </View>
+              <View>
+                <Text style={[styles.muted, { fontSize: 7 }]}>테스트 결과</Text>
+                <Text style={{ fontSize: 8 }}>{a.testResult || "(미입력)"}</Text>
+              </View>
+              {a.attachmentFilename && (
+                <Text style={[styles.muted, { fontSize: 7, marginTop: 2 }]}>
+                  📎 {a.attachmentFilename}
+                </Text>
+              )}
+            </View>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -760,76 +843,6 @@ function IterationPdf({
         </View>
       )}
 
-      {/* Customer view: show placeholder instead of assessment content */}
-      {hideAssessments && iteration.assessments.length > 0 && (
-        <View style={{ marginTop: 4 }}>
-          <Text style={[styles.muted, { fontSize: 7, fontWeight: "bold", marginBottom: 3 }]}>
-            기능 평가
-          </Text>
-          <View
-            style={{
-              padding: 6,
-              borderWidth: 0.5,
-              borderColor: colors.border,
-              borderStyle: "dashed",
-              borderRadius: 2,
-              backgroundColor: "#fafafa",
-            }}
-          >
-            <Text style={{ fontSize: 8, textAlign: "center", color: colors.muted }}>
-              컨설턴트 평가 중입니다. 평가가 완료되면 본 섹션에 내용이 표시됩니다.
-            </Text>
-          </View>
-        </View>
-      )}
-
-      {!hideAssessments && iteration.assessments.length > 0 && (
-        <View style={{ marginTop: 4 }}>
-          <Text style={[styles.muted, { fontSize: 7, fontWeight: "bold", marginBottom: 3 }]}>
-            기능 평가
-          </Text>
-          {iteration.assessments.map((a, i) => (
-            <View
-              key={i}
-              style={{
-                marginBottom: 3,
-                padding: 4,
-                borderWidth: 0.5,
-                borderColor: colors.border,
-                borderRadius: 2,
-                backgroundColor: "#fff",
-              }}
-            >
-              <View style={[styles.row, { justifyContent: "space-between", marginBottom: 2 }]}>
-                <Text style={{ fontSize: 8, fontWeight: "bold" }}>
-                  {ASSESSMENT_LABEL_KO[a.type]}
-                </Text>
-                <Text
-                  style={[
-                    styles.badge,
-                    { backgroundColor: verdictColor(a.verdict) },
-                  ]}
-                >
-                  {verdictLabel(a.verdict)}
-                </Text>
-              </View>
-              <View style={{ marginBottom: 2 }}>
-                <Text style={[styles.muted, { fontSize: 7 }]}>테스트 방법</Text>
-                <Text style={{ fontSize: 8 }}>{a.testMethod || "(미입력)"}</Text>
-              </View>
-              <View>
-                <Text style={[styles.muted, { fontSize: 7 }]}>테스트 결과</Text>
-                <Text style={{ fontSize: 8 }}>{a.testResult || "(미입력)"}</Text>
-              </View>
-              {a.attachmentFilename && (
-                <Text style={[styles.muted, { fontSize: 7, marginTop: 2 }]}>
-                  📎 {a.attachmentFilename}
-                </Text>
-              )}
-            </View>
-          ))}
-        </View>
-      )}
     </View>
   );
 }

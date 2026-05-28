@@ -38,10 +38,16 @@ import { AssessmentForm } from "./assessment-form";
 import { LockedBanner } from "../locked-banner";
 import { AIFillAssessmentButton } from "./ai-fill-assessment-button";
 
-type IterationBlock = {
-  assetId: string | null;
-  assetLabel: string | null; // null → global
-  outcome: DTOutcome;
+// Assessment is performed once per requirement (not per asset). We still walk
+// each asset's DT outcome to decide whether the requirement is "active"
+// (has at least one PASS/FAIL iteration) and to show an outcome summary.
+type RequirementBlock = {
+  reqId: string;
+  reqTitle: string;
+  reqMechanism: string;
+  reqClause: string;
+  passCount: number;
+  failCount: number;
   assessments: Array<{
     type: AssessmentType;
     testMethod: string;
@@ -53,14 +59,6 @@ type IterationBlock = {
       size: number;
     } | null;
   }>;
-};
-
-type RequirementBlock = {
-  reqId: string;
-  reqTitle: string;
-  reqMechanism: string;
-  reqClause: string;
-  iterations: IterationBlock[];
 };
 
 export default async function AssessmentPage({
@@ -172,29 +170,46 @@ export default async function AssessmentPage({
 
   for (const req of visibleReqs) {
     const assessTypes = assessmentsFor(req.id);
-    const iterations: IterationBlock[] = [];
 
-    const pushIter = (
-      assetId: string | null,
-      assetLabel: string | null,
-      outcome: DTOutcome,
-    ) => {
-      iterations.push({
-        assetId,
-        assetLabel,
-        outcome,
-        assessments: assessTypes.map((t) => {
-          const key = `${req.id}::${assetId ?? "__global__"}::${t}`;
-          const rec = assessmentMap.get(key);
-          return {
-            type: t,
-            testMethod: rec?.testMethod ?? "",
-            testResult: rec?.testResult ?? "",
-            verdict: rec?.verdict ?? null,
-            attachment: rec?.attachment ?? null,
-          };
-        }),
-      });
+    // Count PASS/FAIL outcomes across the requirement's iterations to decide
+    // whether the requirement needs assessment (≥1 PASS/FAIL) and to show a
+    // summary. The assessment itself is performed once per requirement.
+    let passCount = 0;
+    let failCount = 0;
+
+    const tallyOutcome = (assetId: string | null) => {
+      // Auto-NA via naFromRequirement
+      if (req.naFromRequirement) {
+        const linked = project.dtAnswers
+          .filter(
+            (d) =>
+              d.requirementId === req.naFromRequirement!.requirementId &&
+              (d.assetId ?? null) === assetId,
+          )
+          .map((d) => ({ nodeId: d.nodeId, answer: d.answer as NodeAnswer }));
+        if (
+          evaluateNAFromRequirement(
+            req,
+            linked,
+            requirementById(req.naFromRequirement!.requirementId),
+          ).applies
+        ) {
+          return;
+        }
+      }
+      const answers: Record<string, NodeAnswer> = {};
+      for (const d of project.dtAnswers) {
+        if (d.requirementId === req.id && (d.assetId ?? null) === assetId) {
+          if (d.answer === "yes" || d.answer === "no" || d.answer === "na")
+            answers[d.nodeId] = d.answer;
+        }
+      }
+      if (Object.keys(answers).length === 0) return;
+      const walk = walkTree(req, answers);
+      if (walk.kind !== "outcome") return;
+      if (walk.outcome === "pass") passCount++;
+      else if (walk.outcome === "fail") failCount++;
+      // NA iterations are ignored
     };
 
     if (req.iterateOver) {
@@ -204,92 +219,37 @@ export default async function AssessmentPage({
         applicableStandards,
       );
       const matching = matchAssetsForRequirement(req, parsedAssets, dedupedKinds);
-      for (const a of matching) {
-        // Auto-NA via naFromRequirement
-        if (req.naFromRequirement) {
-          const linked = project.dtAnswers
-            .filter(
-              (d) =>
-                d.requirementId === req.naFromRequirement!.requirementId &&
-                d.assetId === a.id,
-            )
-            .map((d) => ({
-              nodeId: d.nodeId,
-              answer: d.answer as NodeAnswer,
-            }));
-          if (
-            evaluateNAFromRequirement(
-              req,
-              linked,
-              requirementById(req.naFromRequirement!.requirementId),
-            ).applies
-          ) {
-            continue; // skip assessment for auto-NA assets
-          }
-        }
-        // Look up own DT outcome
-        const answers: Record<string, NodeAnswer> = {};
-        for (const d of project.dtAnswers) {
-          if (d.requirementId === req.id && d.assetId === a.id) {
-            if (d.answer === "yes" || d.answer === "no" || d.answer === "na")
-              answers[d.nodeId] = d.answer;
-          }
-        }
-        if (Object.keys(answers).length === 0) continue;
-        const walk = walkTree(req, answers);
-        if (walk.kind !== "outcome") continue;
-        if (walk.outcome === "not_applicable") continue; // skip NA iterations
-        pushIter(
-          a.id,
-          `${a.name} · ${kindConfig(a.kind)?.title_ko ?? a.kind}`,
-          walk.outcome,
-        );
-      }
+      for (const a of matching) tallyOutcome(a.id);
     } else {
-      // Global requirement
-      if (req.naFromRequirement) {
-        const linked = project.dtAnswers
-          .filter(
-            (d) =>
-              d.requirementId === req.naFromRequirement!.requirementId &&
-              d.assetId === null,
-          )
-          .map((d) => ({
-            nodeId: d.nodeId,
-            answer: d.answer as NodeAnswer,
-          }));
-        if (
-          evaluateNAFromRequirement(
-            req,
-            linked,
-            requirementById(req.naFromRequirement!.requirementId),
-          ).applies
-        )
-          continue;
-      }
-      const answers: Record<string, NodeAnswer> = {};
-      for (const d of project.dtAnswers) {
-        if (d.requirementId === req.id && d.assetId === null) {
-          if (d.answer === "yes" || d.answer === "no" || d.answer === "na")
-            answers[d.nodeId] = d.answer;
-        }
-      }
-      if (Object.keys(answers).length === 0) continue;
-      const walk = walkTree(req, answers);
-      if (walk.kind !== "outcome") continue;
-      if (walk.outcome === "not_applicable") continue;
-      pushIter(null, null, walk.outcome);
+      tallyOutcome(null);
     }
 
-    if (iterations.length > 0) {
-      blocks.push({
-        reqId: req.id,
-        reqTitle: req.title_ko,
-        reqMechanism: req.mechanismCode,
-        reqClause: req.clause,
-        iterations,
-      });
-    }
+    // Requirement needs assessment only if at least one iteration is PASS/FAIL.
+    if (passCount + failCount === 0) continue;
+
+    // Assessment is stored once per requirement at assetId = null
+    // (key suffix "__global__").
+    const assessments = assessTypes.map((t) => {
+      const key = `${req.id}::__global__::${t}`;
+      const rec = assessmentMap.get(key);
+      return {
+        type: t,
+        testMethod: rec?.testMethod ?? "",
+        testResult: rec?.testResult ?? "",
+        verdict: rec?.verdict ?? null,
+        attachment: rec?.attachment ?? null,
+      };
+    });
+
+    blocks.push({
+      reqId: req.id,
+      reqTitle: req.title_ko,
+      reqMechanism: req.mechanismCode,
+      reqClause: req.clause,
+      passCount,
+      failCount,
+      assessments,
+    });
   }
 
   return (
@@ -418,42 +378,31 @@ export default async function AssessmentPage({
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                      {block.iterations.map((it) => (
-                        <div
-                          key={`${block.reqId}-${it.assetId ?? "global"}`}
-                          className="rounded-lg border p-4"
-                        >
-                          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                            <div className="text-sm">
-                              {it.assetLabel ? (
-                                <>
-                                  <span className="font-medium">
-                                    {it.assetLabel.split(" · ")[0]}
-                                  </span>
-                                  <span className="ml-2 text-xs text-muted-foreground">
-                                    {it.assetLabel.split(" · ").slice(1).join(" · ")}
-                                  </span>
-                                </>
-                              ) : (
-                                <span className="font-medium">기기 전체</span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[11px] text-muted-foreground">
-                                DT 결과
-                              </span>
-                              <OutcomeBadge outcome={it.outcome} />
-                            </div>
+                      <div className="rounded-lg border p-4">
+                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-sm font-medium">
+                            요구사항 전체 평가 / Per-requirement assessment
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[11px] text-muted-foreground">
+                              DT 결과 (자산 종합)
+                            </span>
+                            {block.passCount > 0 && (
+                              <OutcomeBadge outcome="pass" count={block.passCount} />
+                            )}
+                            {block.failCount > 0 && (
+                              <OutcomeBadge outcome="fail" count={block.failCount} />
+                            )}
                           </div>
-                          <AssessmentForm
-                            projectId={project.id}
-                            assetId={it.assetId}
-                            requirementId={block.reqId}
-                            assessments={it.assessments}
-                            readOnly={project.finalizedAt !== null}
-                          />
                         </div>
-                      ))}
+                        <AssessmentForm
+                          projectId={project.id}
+                          assetId={null}
+                          requirementId={block.reqId}
+                          assessments={block.assessments}
+                          readOnly={project.finalizedAt !== null}
+                        />
+                      </div>
                     </CardContent>
                   </Card>
                 ))}
@@ -481,25 +430,32 @@ export default async function AssessmentPage({
   );
 }
 
-function OutcomeBadge({ outcome }: { outcome: DTOutcome }) {
+function OutcomeBadge({
+  outcome,
+  count,
+}: {
+  outcome: DTOutcome;
+  count?: number;
+}) {
+  const suffix = count !== undefined ? ` ${count}` : "";
   if (outcome === "pass")
     return (
       <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">
         <CheckCircle2 className="mr-1 size-3" />
-        PASS
+        PASS{suffix}
       </Badge>
     );
   if (outcome === "fail")
     return (
       <Badge variant="destructive">
         <XCircle className="mr-1 size-3" />
-        FAIL
+        FAIL{suffix}
       </Badge>
     );
   return (
     <Badge variant="secondary">
       <MinusCircle className="mr-1 size-3" />
-      N/A
+      N/A{suffix}
     </Badge>
   );
 }

@@ -2023,70 +2023,77 @@ export async function aiFillAssessmentAll(projectId: string) {
 
       if (iters.length === 0) continue;
 
-      const validAssetKeys = iters.map((i) => i.assetKey);
+      // Assessment is performed once per requirement (not per asset). Collapse
+      // the active (PASS/FAIL) asset iterations into a single synthetic
+      // iteration; the model produces one set of assessment methods for the
+      // whole requirement, persisted at assetId = null.
+      const REQ_KEY = "__requirement__";
+      const reqIteration = {
+        assetKey: REQ_KEY,
+        label: `요구사항 전체 (PASS/FAIL 자산 ${iters.length}개 종합)`,
+        metadata: {} as Record<string, string>,
+        answeredPath: iters[0].answeredPath,
+        applicableTypes: types,
+      };
 
       const result = await runAIWithAttachments<AssessmentAIResult>({
         systemPrompt: ASSESSMENT_SYSTEM_PROMPT,
         userPrompt: buildAssessmentUserPrompt({
           project,
           requirement: req,
-          iterations: iters,
+          iterations: [reqIteration],
           screeningAnswers,
           assetSummary,
         }),
         attachments,
-        jsonSchema: buildAssessmentJsonSchema(validAssetKeys, types),
+        jsonSchema: buildAssessmentJsonSchema([REQ_KEY], types),
         schemaName: "assessment_methods",
       });
 
-      const validKeySet = new Set(validAssetKeys);
       const validTypeSet = new Set(types);
 
       await prisma.$transaction(async (tx) => {
-        for (const it of result.iterations) {
-          if (!validKeySet.has(it.assetKey)) continue;
-          const assetId = it.assetKey === "__global__" ? null : it.assetKey;
+        const it = result.iterations.find((r) => r.assetKey === REQ_KEY);
+        if (!it) return;
+        for (const m of it.methods) {
+          if (!validTypeSet.has(m.type)) continue;
+          // One assessment record per (requirement, type) at assetId = null.
+          const existing = await tx.dTAssessment.findFirst({
+            where: {
+              projectId,
+              assetId: null,
+              requirementId: req.id,
+              assessmentType: m.type,
+            },
+          });
+          if (existing?.userReviewed) continue;
 
-          for (const m of it.methods) {
-            if (!validTypeSet.has(m.type)) continue;
-            // Skip if user has already reviewed this assessment record.
-            const existing = await tx.dTAssessment.findFirst({
-              where: {
-                projectId,
-                assetId,
-                requirementId: req.id,
-                assessmentType: m.type,
+          if (existing) {
+            await tx.dTAssessment.update({
+              where: { id: existing.id },
+              data: {
+                testMethod: m.testMethod,
+                aiGenerated: true,
+                aiGeneratedAt: now,
+                userReviewed: false,
               },
             });
-            if (existing?.userReviewed) continue;
-
-            if (existing) {
-              await tx.dTAssessment.update({
-                where: { id: existing.id },
-                data: {
-                  testMethod: m.testMethod,
-                  aiGenerated: true,
-                  aiGeneratedAt: now,
-                  userReviewed: false,
-                },
-              });
-            } else {
-              await tx.dTAssessment.create({
-                data: {
-                  projectId,
-                  assetId,
-                  requirementId: req.id,
-                  assessmentType: m.type,
-                  testMethod: m.testMethod,
-                  testResult: "",
-                  aiGenerated: true,
-                  aiGeneratedAt: now,
-                  userReviewed: false,
-                },
-              });
-            }
-            totalSaved++;
+          } else {
+            await tx.dTAssessment.create({
+              data: {
+                projectId,
+                assetId: null,
+                requirementId: req.id,
+                assessmentType: m.type,
+                testMethod: m.testMethod,
+                testResult: "",
+                aiGenerated: true,
+                aiGeneratedAt: now,
+                userReviewed: false,
+              },
+            });
           }
+          totalSaved++;
         }
       });
       reqsProcessed++;
