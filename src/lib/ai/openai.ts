@@ -1,74 +1,65 @@
-// OpenAI client wrapper for the Z-GRC AI auto-fill feature.
+// LLM wrapper for the Z-GRC AI auto-fill feature (screening / assets / DT /
+// instances / evidence / assessment). Backed by Claude (Anthropic) — the file
+// name is kept as-is so existing imports don't change.
 //
-// Uses the Responses API (gpt-4o for vision, gpt-4o-mini for text-only) and
-// supports inlining a project's attachments so the model can read product
-// manuals, architecture diagrams, vendor questionnaires, etc. when filling
-// in screening / DT / evidence / assessment fields. Supported attachment
-// formats:
-//   - Images (PNG/JPEG/SVG) → base64 data URL inlined as input_image
-//   - PDFs                  → base64 file_data inlined as input_file
-//   - .docx                 → text extracted via mammoth, inlined as input_text
-//   - .xlsx                 → per-sheet CSV extracted via xlsx, inlined as input_text
-// Structured output is enforced via JSON Schema.
+// Inlines a project's attachments so the model can read product manuals,
+// architecture diagrams, vendor questionnaires, etc. Supported formats:
+//   - Images (PNG/JPEG/GIF/WebP) → base64 image block
+//   - PDFs                        → base64 document block
+//   - .docx                       → HTML extracted via mammoth, as text
+//   - .xlsx                       → per-sheet CSV via xlsx, as text
+// Structured output is enforced via JSON Schema (output_config.format).
 
-import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import fs from "fs/promises";
 import path from "path";
 import mammoth from "mammoth";
 import * as XLSX from "xlsx";
 import { prisma } from "@/lib/prisma";
 
-let _client: OpenAI | null = null;
+let _client: Anthropic | null = null;
 
-export function getOpenAI(): OpenAI {
+function getClient(): Anthropic {
   if (!_client) {
-    const key = process.env.OPENAI_API_KEY;
-    if (!key) {
+    if (!process.env.ANTHROPIC_API_KEY) {
       throw new Error(
-        "OPENAI_API_KEY 환경 변수가 설정되지 않았습니다. .env.local에 키를 추가한 뒤 서버를 재시작하세요.",
+        "ANTHROPIC_API_KEY 환경 변수가 설정되지 않았습니다. .env에 키를 추가한 뒤 서버를 재시작하세요.",
       );
     }
-    _client = new OpenAI({ apiKey: key });
+    _client = new Anthropic({ maxRetries: 6 });
   }
   return _client;
 }
 
-// Models — switch via env if you want to override per environment.
-export const VISION_MODEL = process.env.OPENAI_VISION_MODEL ?? "gpt-4o-mini";
-export const TEXT_MODEL = process.env.OPENAI_TEXT_MODEL ?? "gpt-4o-mini";
+// Model + effort are env-overridable. Opus 4.8 by default (most capable);
+// drop to a cheaper model / lower effort via env if high call volume needs it.
+const AI_MODEL = process.env.AI_MODEL ?? "claude-opus-4-8";
+const AI_EFFORT = (process.env.AI_EFFORT ?? "medium") as
+  | "low"
+  | "medium"
+  | "high"
+  | "max";
 
 export type AttachmentInput =
-  | {
-      kind: "image";
-      dataUrl: string;
-      filename: string;
-      description: string;
-    }
-  | {
-      kind: "file";
-      fileData: string; // "data:application/pdf;base64,..."
-      filename: string;
-      description: string;
-    }
-  | {
-      // Text extracted from Office docs (docx/xlsx) — included as plain text
-      // since OpenAI's input_file does not natively support these formats.
-      kind: "text";
-      filename: string;
-      description: string;
-      text: string;
-    };
+  | { kind: "image"; dataUrl: string; filename: string; description: string }
+  | { kind: "file"; fileData: string; filename: string; description: string }
+  | { kind: "text"; filename: string; description: string; text: string };
 
 const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const XLSX_MIME =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-// Truncate extracted text to keep the prompt size and cost predictable.
 const MAX_EXTRACTED_TEXT_CHARS = 60_000;
 
-// Convert DOCX to HTML so table structure is preserved for the AI.
-// Raw text extraction loses column relationships, making tables unreadable.
+// Anthropic vision supports these media types (SVG is not supported).
+const SUPPORTED_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+]);
+
 async function extractDocxText(buf: Buffer): Promise<string> {
   const res = await mammoth.convertToHtml({ buffer: buf });
   return res.value;
@@ -87,15 +78,15 @@ function extractXlsxText(buf: Buffer): string {
   return out.join("\n\n");
 }
 
-// Reads a project's uploaded attachments from disk, encoding each one for
-// inclusion in an OpenAI Responses API request. Office documents are
-// extracted to plain text server-side (OpenAI's API cannot read docx/xlsx
-// directly) and passed as additional input_text blocks.
+// Reads a project's uploaded attachments from disk, encoding each for inclusion
+// in a Claude request. Office docs are extracted to text server-side. Firmware
+// (kind="firmware") is excluded — it's handled by the firmware analysis path,
+// not inlined here.
 export async function loadProjectAttachmentsForAI(
   projectId: string,
 ): Promise<AttachmentInput[]> {
   const attachments = await prisma.projectAttachment.findMany({
-    where: { projectId },
+    where: { projectId, kind: { not: "firmware" } },
     orderBy: { createdAt: "asc" },
   });
   const out: AttachmentInput[] = [];
@@ -139,7 +130,6 @@ export async function loadProjectAttachmentsForAI(
           });
         }
       }
-      // .doc / .xls (legacy binary) and unknown types still skipped.
     } catch (err) {
       console.error(
         `Failed to extract attachment ${a.filename} (${a.mimeType}):`,
@@ -150,48 +140,55 @@ export async function loadProjectAttachmentsForAI(
   return out;
 }
 
-// Run a structured-output AI call with a project's attachments. The model is
-// instructed via `systemPrompt` and asked the question via `userPrompt`; all
-// loaded attachments are appended as multimodal inputs. The response is
-// validated against `jsonSchema` and parsed into T.
+// Parse a data URL into { mediaType, base64 }.
+function parseDataUrl(dataUrl: string): { mediaType: string; data: string } | null {
+  const m = dataUrl.match(/^data:(.+?);base64,(.*)$/);
+  if (!m) return null;
+  return { mediaType: m[1], data: m[2] };
+}
+
+// Run a structured-output AI call with a project's attachments via Claude.
+// Same signature as before; the response is validated against `jsonSchema`
+// (output_config.format) and parsed into T.
 export async function runAIWithAttachments<T>(opts: {
   systemPrompt: string;
   userPrompt: string;
   attachments: AttachmentInput[];
   jsonSchema: Record<string, unknown>;
   schemaName: string;
-  /** Defaults to VISION_MODEL when attachments are present, TEXT_MODEL otherwise. */
   model?: string;
 }): Promise<T> {
-  const client = getOpenAI();
-  // Use VISION_MODEL only when there are actual image or PDF file attachments
-  // that require visual processing. Text-extracted DOCX/XLSX attachments are
-  // plain text and don't benefit from vision — using TEXT_MODEL avoids hitting
-  // the much lower TPM rate limit on gpt-4o.
-  const needsVision = opts.attachments.some(
-    (a) => a.kind === "image" || a.kind === "file",
-  );
-  const model = opts.model ?? (needsVision ? VISION_MODEL : TEXT_MODEL);
+  const client = getClient();
 
-  // Build the user content array: prompt text + each attachment + a small
-  // descriptor line per attachment so the model knows what each one is.
-  const userContent: Array<Record<string, unknown>> = [
-    { type: "input_text", text: opts.userPrompt },
-  ];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const userContent: any[] = [{ type: "text", text: opts.userPrompt }];
   for (const a of opts.attachments) {
     if (a.kind === "image") {
-      userContent.push({ type: "input_image", image_url: a.dataUrl });
+      const parsed = parseDataUrl(a.dataUrl);
+      if (parsed && SUPPORTED_IMAGE_TYPES.has(parsed.mediaType)) {
+        userContent.push({
+          type: "image",
+          source: { type: "base64", media_type: parsed.mediaType, data: parsed.data },
+        });
+      } else {
+        userContent.push({
+          type: "text",
+          text: `[이미지 첨부 "${a.filename}" — 형식 미지원(예: SVG)으로 직접 읽지 못함: ${a.description || "(설명 없음)"}]`,
+        });
+        continue;
+      }
     } else if (a.kind === "file") {
-      userContent.push({
-        type: "input_file",
-        filename: a.filename,
-        file_data: a.fileData,
-      });
+      const parsed = parseDataUrl(a.fileData);
+      if (parsed) {
+        userContent.push({
+          type: "document",
+          source: { type: "base64", media_type: "application/pdf", data: parsed.data },
+          title: a.filename,
+        });
+      }
     } else {
-      // Text-extracted attachment (docx/xlsx) — wrap with delimiters so the
-      // model can clearly separate it from the surrounding prompt.
       userContent.push({
-        type: "input_text",
+        type: "text",
         text: `=== 첨부 파일 본문 (텍스트 추출): "${a.filename}" — ${
           a.description || "(설명 없음)"
         } ===\n${a.text}\n=== 첨부 파일 본문 끝 ===`,
@@ -199,34 +196,32 @@ export async function runAIWithAttachments<T>(opts: {
       continue;
     }
     userContent.push({
-      type: "input_text",
-      text: `[첨부 파일 설명: "${a.filename}" — ${
-        a.description || "(설명 없음)"
-      }]`,
+      type: "text",
+      text: `[첨부 파일 설명: "${a.filename}" — ${a.description || "(설명 없음)"}]`,
     });
   }
 
-  // The OpenAI Node SDK's Responses input typing is permissive — we cast to
-  // bypass strict typing of the content union since we're building it
-  // dynamically.
-  const res = await client.responses.create({
-    model,
-    input: [
-      { role: "system", content: opts.systemPrompt },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      { role: "user", content: userContent as any },
-    ],
-    text: {
+  const res = (await client.messages.create({
+    model: opts.model ?? AI_MODEL,
+    max_tokens: 8000,
+    system: opts.systemPrompt,
+    messages: [{ role: "user", content: userContent }],
+    output_config: {
+      effort: AI_EFFORT,
       format: {
         type: "json_schema",
         name: opts.schemaName,
         schema: opts.jsonSchema,
-        strict: true,
       },
     },
-  });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any)) as Anthropic.Message;
 
-  const text = res.output_text?.trim();
+  const text = res.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("")
+    .trim();
   if (!text) {
     throw new Error("AI가 응답을 반환하지 않았습니다.");
   }
