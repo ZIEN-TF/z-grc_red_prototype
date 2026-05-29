@@ -48,3 +48,13 @@ next-env.d.ts
 
 # uploaded project attachments
 /uploads
+
+# EN 18031 standard PDFs (large / copyright) — extracted text lives in
+# src/lib/decision-trees/assessment-units.ts, which IS committed.
+BS+EN+18031-*.pdf
+
+# assessment-unit extraction working files (regenerable; not needed at runtime)
+pdf1.txt
+pdf2.txt
+pdf3.txt
+assessment-units-raw.json

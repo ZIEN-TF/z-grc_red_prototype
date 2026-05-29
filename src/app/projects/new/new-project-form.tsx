@@ -30,31 +30,58 @@ const PRODUCT_TYPE_SUGGESTIONS = [
 const ATTACHMENT_ACCEPT =
   ".pdf,.png,.jpg,.jpeg,.svg,.docx,.xlsx,.doc,.xls,application/pdf,image/png,image/jpeg,image/svg+xml,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/msword,application/vnd.ms-excel";
 
-const REQUIRED_ATTACHMENTS = [
+// Firmware images carry no reliable MIME; accept by common extension and let
+// the server validate by size only (see writeAttachments).
+const FIRMWARE_ACCEPT =
+  ".bin,.img,.trx,.fw,.hex,.tar,.gz,.tgz,.bz2,.xz,.zip,.squashfs,.ubi,.cramfs,.jffs2,.dtb,.elf,.pkg,application/octet-stream,application/zip,application/gzip,application/x-tar,application/x-xz,application/x-bzip2";
+
+type RequiredAttachment = {
+  label: string;
+  description: string;
+  errorMsg: string;
+  kind: "document" | "firmware";
+  accept?: string;
+  note?: string;
+};
+
+const REQUIRED_ATTACHMENTS: RequiredAttachment[] = [
   {
     label: "사용자 매뉴얼 / User Manual",
     description: "사용자 매뉴얼",
     errorMsg: "사용자 매뉴얼 파일을 첨부해주세요. / User Manual is required.",
+    kind: "document",
   },
   {
     label: "아키텍처 다이어그램 / Architecture & Network Diagram",
     description: "아키텍처 다이어그램/네트워크 흐름도",
     errorMsg:
       "아키텍처 다이어그램 파일을 첨부해주세요. / Architecture Diagram is required.",
+    kind: "document",
   },
   {
     label: "Use Case",
     description: "Use Case",
     errorMsg: "Use Case 파일을 첨부해주세요. / Use Case document is required.",
+    kind: "document",
   },
-] as const;
+  {
+    label: "펌웨어 / Firmware",
+    description: "펌웨어 이미지 / Firmware image",
+    errorMsg: "펌웨어 파일을 첨부해주세요. / Firmware image is required.",
+    kind: "firmware",
+    accept: FIRMWARE_ACCEPT,
+    note: "임베디드 Linux 펌웨어 이미지 (.bin, .img, .tar.gz, .zip 등 · 최대 500MB)",
+  },
+];
 
 export function NewProjectForm() {
   const [pending, startTransition] = useTransition();
   const [extraSlotIds, setExtraSlotIds] = useState<number[]>([]);
   const nextIdRef = useRef(0);
   const formRef = useRef<HTMLFormElement>(null);
-  const reqFileRefs = useRef<(HTMLInputElement | null)[]>([null, null, null]);
+  const reqFileRefs = useRef<(HTMLInputElement | null)[]>(
+    REQUIRED_ATTACHMENTS.map(() => null),
+  );
 
   function addSlot() {
     setExtraSlotIds((prev) => [...prev, nextIdRef.current++]);
@@ -181,7 +208,7 @@ export function NewProjectForm() {
                 필수 첨부 파일 / Required Documents
               </Label>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                아래 3가지 문서는 반드시 첨부해야 합니다. (PDF, DOCX, 이미지 · 최대 50MB)
+                아래 문서와 펌웨어는 반드시 첨부해야 합니다. (문서: PDF, DOCX, 이미지 · 최대 50MB)
               </p>
             </div>
 
@@ -194,16 +221,22 @@ export function NewProjectForm() {
                     <span className="ml-1 text-destructive">*</span>
                   </span>
                 </div>
+                {req.note && (
+                  <p className="mb-2 text-[11px] text-muted-foreground">
+                    {req.note}
+                  </p>
+                )}
                 <input
                   type="hidden"
                   name="descriptions"
                   value={req.description}
                 />
+                <input type="hidden" name="kinds" value={req.kind} />
                 <Input
                   ref={(el) => { reqFileRefs.current[i] = el; }}
                   type="file"
                   name="attachments"
-                  accept={ATTACHMENT_ACCEPT}
+                  accept={req.accept ?? ATTACHMENT_ACCEPT}
                   disabled={pending}
                   className="cursor-pointer text-xs file:mr-3 file:cursor-pointer file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-[11px]"
                 />
@@ -279,6 +312,7 @@ function AttachmentSlot({
         </span>
       </div>
       <div className="space-y-2">
+        <input type="hidden" name="kinds" value="document" />
         <Input
           type="file"
           name="attachments"

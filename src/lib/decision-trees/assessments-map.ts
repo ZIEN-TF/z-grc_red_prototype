@@ -23,7 +23,7 @@ export const ASSESSMENTS_MAP: Record<string, AssessmentType[]> = {
   "P1.SUM-3": ["sufficiency"],
   "P1.SSM-1": ["completeness", "sufficiency"],
   "P1.SSM-2": ["sufficiency"],
-  "P1.SSM-3": ["sufficiency"],
+  "P1.SSM-3": ["completeness", "sufficiency"],
   "P1.SCM-1": ["completeness", "sufficiency"],
   "P1.SCM-2": ["sufficiency"],
   "P1.SCM-3": ["sufficiency"],
@@ -45,10 +45,10 @@ export const ASSESSMENTS_MAP: Record<string, AssessmentType[]> = {
   // ── EN 18031-2 ────────────────────────────────────────────────
   "P2.ACM-1": ["completeness", "sufficiency"],
   "P2.ACM-2": ["sufficiency"],
-  "P2.ACM-3": ["sufficiency"],
-  "P2.ACM-4": ["sufficiency"],
-  "P2.ACM-5": ["sufficiency"],
-  "P2.ACM-6": ["sufficiency"],
+  "P2.ACM-3": ["completeness", "sufficiency"],
+  "P2.ACM-4": ["completeness", "sufficiency"],
+  "P2.ACM-5": ["completeness", "sufficiency"],
+  "P2.ACM-6": ["completeness", "sufficiency"],
   "P2.AUM-1-1": ["completeness", "sufficiency"],
   "P2.AUM-1-2": ["completeness", "sufficiency"],
   "P2.AUM-2-1": ["sufficiency"],
@@ -63,7 +63,7 @@ export const ASSESSMENTS_MAP: Record<string, AssessmentType[]> = {
   "P2.SUM-3": ["sufficiency"],
   "P2.SSM-1": ["completeness", "sufficiency"],
   "P2.SSM-2": ["sufficiency"],
-  "P2.SSM-3": ["sufficiency"],
+  "P2.SSM-3": ["completeness", "sufficiency"],
   "P2.SCM-1": ["completeness", "sufficiency"],
   "P2.SCM-2": ["sufficiency"],
   "P2.SCM-3": ["sufficiency"],
@@ -74,18 +74,17 @@ export const ASSESSMENTS_MAP: Record<string, AssessmentType[]> = {
   "P2.LGM-4": ["sufficiency"],
   "P2.DLM-1": ["completeness", "sufficiency"],
   "P2.UNM-1": ["completeness", "sufficiency"],
-  "P2.UNM-2": ["completeness", "sufficiency"],
+  "P2.UNM-2": ["sufficiency"], // 표준: 완전성은 충분성 평가에 포함
   "P2.CCK-1": ["completeness", "sufficiency"],
   "P2.CCK-2": ["conceptual_completeness"],
   "P2.CCK-3": ["completeness", "sufficiency"],
   "P2.GEC-1": ["completeness", "sufficiency"],
-  "P2.GEC-2": ["completeness", "sufficiency"],
+  "P2.GEC-2": ["completeness"], // 표준: 충분성 평가는 Not applicable
   "P2.GEC-3": ["completeness", "sufficiency"],
-  "P2.GEC-4": ["completeness", "sufficiency"],
+  "P2.GEC-4": ["completeness"], // 표준: 충분성 평가는 None
   "P2.GEC-5": ["completeness"],
-  "P2.GEC-6": ["completeness"],
-  // P2.GEC-7 (external sensing documentation) — not in assessment mapping; no technical assessment required
-  "P2.GEC-7": [],
+  "P2.GEC-6": ["completeness", "sufficiency"],
+  "P2.GEC-7": ["completeness"], // 표준: 기능 완전성 평가 존재(§6.10.7)
   "P2.CRY-1": ["completeness", "sufficiency"],
 
   // ── EN 18031-3 ────────────────────────────────────────────────
@@ -106,7 +105,7 @@ export const ASSESSMENTS_MAP: Record<string, AssessmentType[]> = {
   "P3.SUM-3": ["sufficiency"],
   "P3.SSM-1": ["completeness", "sufficiency"],
   "P3.SSM-2": ["sufficiency"],
-  "P3.SSM-3": ["sufficiency"],
+  "P3.SSM-3": ["completeness", "sufficiency"],
   "P3.SCM-1": ["completeness", "sufficiency"],
   "P3.SCM-2": ["sufficiency"],
   "P3.SCM-3": ["sufficiency"],
@@ -123,7 +122,7 @@ export const ASSESSMENTS_MAP: Record<string, AssessmentType[]> = {
   "P3.GEC-3": ["completeness", "sufficiency"],
   "P3.GEC-4": ["completeness"],
   "P3.GEC-5": ["completeness"],
-  "P3.GEC-6": ["completeness"],
+  "P3.GEC-6": ["completeness", "sufficiency"],
   // P3.GEC-7 does not exist in code (standard explicitly skipped); no mapping needed
   "P3.GEC-8": ["completeness", "sufficiency"],
   "P3.CRY-1": ["completeness", "sufficiency"],

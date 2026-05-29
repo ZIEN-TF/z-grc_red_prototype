@@ -17,7 +17,8 @@ import {
 } from "@/lib/auth";
 
 // File upload constraints for project attachments
-const ATTACHMENT_MAX_SIZE = 50 * 1024 * 1024; // 50MB
+const ATTACHMENT_MAX_SIZE = 50 * 1024 * 1024; // 50MB (documents)
+const FIRMWARE_MAX_SIZE = 500 * 1024 * 1024; // 500MB (firmware images)
 const ATTACHMENT_ALLOWED_MIMES = new Set([
   "application/pdf",
   "image/png",
@@ -28,6 +29,10 @@ const ATTACHMENT_ALLOWED_MIMES = new Set([
   "application/msword",
   "application/vnd.ms-excel",
 ]);
+
+function humanSize(bytes: number): string {
+  return `${Math.round(bytes / (1024 * 1024))}MB`;
+}
 
 function sanitizeFilename(name: string): string {
   // Replace path separators / control chars with "_" but keep unicode (incl. Korean).
@@ -59,6 +64,9 @@ async function writeAttachments(
 ): Promise<void> {
   const files = formData.getAll("attachments").filter((f) => f instanceof File) as File[];
   const descriptions = formData.getAll("descriptions").map((d) => String(d));
+  // Per-slot category, parallel to `attachments`. "firmware" relaxes the MIME
+  // allowlist and raises the size cap; anything else is treated as a document.
+  const kinds = formData.getAll("kinds").map((k) => String(k));
 
   const dir = path.join(process.cwd(), "uploads", projectId);
   let dirCreated = false;
@@ -66,11 +74,17 @@ async function writeAttachments(
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
     if (!file || file.size === 0) continue; // empty slot
-    if (!ATTACHMENT_ALLOWED_MIMES.has(file.type)) {
+    const isFirmware = (kinds[i] ?? "document") === "firmware";
+    // Firmware images carry no reliable MIME (often application/octet-stream),
+    // so we only enforce the size cap for them, not the document allowlist.
+    if (!isFirmware && !ATTACHMENT_ALLOWED_MIMES.has(file.type)) {
       throw new Error(`지원하지 않는 파일 형식: ${file.name} (${file.type})`);
     }
-    if (file.size > ATTACHMENT_MAX_SIZE) {
-      throw new Error(`파일 크기 초과: ${file.name} (최대 50MB)`);
+    const maxSize = isFirmware ? FIRMWARE_MAX_SIZE : ATTACHMENT_MAX_SIZE;
+    if (file.size > maxSize) {
+      throw new Error(
+        `파일 크기 초과: ${file.name} (최대 ${humanSize(maxSize)})`,
+      );
     }
     if (!dirCreated) {
       await fs.mkdir(dir, { recursive: true });
@@ -85,6 +99,7 @@ async function writeAttachments(
     await prisma.projectAttachment.create({
       data: {
         projectId,
+        kind: isFirmware ? "firmware" : "document",
         filename: file.name,
         storedPath,
         mimeType: file.type,

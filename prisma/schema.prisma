@@ -74,6 +74,51 @@ model Project {
   dtAssessments    DTAssessment[]
   attachments      ProjectAttachment[]
   shareTokens      ShareToken[]
+  firmwareAnalyses FirmwareAnalysis[]
+  aiPipelineRuns   AiPipelineRun[]
+}
+
+// Result of the one-time heavy firmware analysis (binwalk extraction + agentic
+// inspection). Downstream AI steps (asset id, DT, evidence, assessment) reuse
+// `findings` instead of re-reading the firmware; the agent may drill down
+// further into the retained extracted rootfs and append to findings.
+model FirmwareAnalysis {
+  id           String    @id @default(cuid())
+  projectId    String
+  attachmentId String? // the firmware ProjectAttachment analyzed
+  status       String    @default("pending") // pending|extracting|analyzing|done|failed
+  findings     String    @default("") // structured findings JSON
+  extractedPath String? // server-side path to extracted rootfs (for drill-down)
+  error        String?
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+// Tracks one "AI 전체 자동 수행" background run so the UI can show progress.
+// Steps run in dependency order: firmware → assets → dt → evidence → assessment.
+model AiPipelineRun {
+  id         String    @id @default(cuid())
+  projectId  String
+  status     String    @default("queued") // queued|running|done|failed|canceled
+  step       String    @default("") // firmware|assets|dt|evidence|assessment
+  total      Int       @default(0) // total work units for the current step
+  completed  Int       @default(0) // completed units for the current step
+  message    String    @default("") // human-readable progress line
+  error      String?
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
 }
 
 // Read-only share links — any holder of the URL can view the project in read-only mode.
@@ -224,6 +269,7 @@ model DTAssessment {
 model ProjectAttachment {
   id          String @id @default(cuid())
   projectId   String
+  kind        String @default("document") // "document" | "firmware"
   filename    String // original filename (as submitted by user)
   storedPath  String // relative path from uploads/ (e.g. "{projectId}/{uuid}-manual.pdf")
   mimeType    String
