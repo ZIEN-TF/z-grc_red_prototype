@@ -20,6 +20,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { MECHANISMS, STANDARDS, type StandardId } from "@/lib/mechanisms";
+import { AiPipelinePanel } from "./ai-pipeline-panel";
+import { getAiPipelineStatus } from "@/app/ai-pipeline-actions";
 
 export default async function ResultPage({
   params,
@@ -58,6 +60,11 @@ export default async function ResultPage({
     JSON.parse(project.mechanismCandidates) as string[],
   );
 
+  const firmwareCount = await prisma.projectAttachment.count({
+    where: { projectId: id, kind: "firmware" },
+  });
+  const pipelineStatus = await getAiPipelineStatus(id);
+
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <div>
@@ -79,6 +86,13 @@ export default async function ResultPage({
           {project.manufacturer}
         </p>
       </div>
+
+      <AiPipelinePanel
+        projectId={project.id}
+        initial={pipelineStatus}
+        hasFirmware={firmwareCount > 0}
+        disabled={project.finalizedAt !== null}
+      />
 
       {/* Applicable standards */}
       <Card>
