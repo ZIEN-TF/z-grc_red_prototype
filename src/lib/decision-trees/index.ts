@@ -6,6 +6,12 @@ import type { DTRequirement } from "./types";
 export * from "./types";
 export { assessmentsFor, ASSESSMENTS_MAP } from "./assessments-map";
 export { evidenceExampleFor } from "./evidence-examples";
+export {
+  assessmentUnitFor,
+  ASSESSMENT_UNITS,
+  type AssessmentUnitSpec,
+} from "./assessment-units";
+export { definitionsText, DEFINITIONS } from "./definitions";
 
 export const DT_REQUIREMENTS: DTRequirement[] = [
   ...P1_REQUIREMENTS,
