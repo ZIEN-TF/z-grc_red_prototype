@@ -14,8 +14,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { z } from "zod";
 
-// Opus 4.8 — most capable; adaptive thinking only (no budget_tokens / sampling params).
-export const PIPELINE_MODEL = "claude-opus-4-8";
+// Default to Sonnet 4.6 (fast, capable) so per-call latency stays under the
+// gateway timeout. Override with AI_MODEL (e.g. claude-opus-4-8) when wanted.
+export const PIPELINE_MODEL = process.env.AI_MODEL ?? "claude-sonnet-4-6";
 
 // Max concurrent in-flight requests. Keep small to stay under per-minute limits;
 // the SDK handles backoff if we still hit 429.

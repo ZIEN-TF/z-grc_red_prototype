@@ -32,14 +32,19 @@ function getClient(): Anthropic {
   return _client;
 }
 
-// Model + effort are env-overridable. Opus 4.8 by default (most capable);
-// drop to a cheaper model / lower effort via env if high call volume needs it.
-const AI_MODEL = process.env.AI_MODEL ?? "claude-opus-4-8";
-const AI_EFFORT = (process.env.AI_EFFORT ?? "medium") as
+// Model + effort are env-overridable. Default to Sonnet 4.6 + low effort: these
+// are high-volume structured-extraction calls that must finish within the
+// gateway timeout (nginx/Cloudflare). Raise via AI_MODEL / AI_EFFORT if needed.
+const AI_MODEL = process.env.AI_MODEL ?? "claude-sonnet-4-6";
+const AI_EFFORT = (process.env.AI_EFFORT ?? "low") as
   | "low"
   | "medium"
   | "high"
   | "max";
+
+// Cap how much firmware-findings text is inlined per call — large inputs slow
+// every request (prefill + reasoning) and risk gateway timeouts.
+const MAX_FINDINGS_CHARS = 8000;
 
 export type AttachmentInput =
   | { kind: "image"; dataUrl: string; filename: string; description: string }
@@ -155,7 +160,7 @@ export async function loadProjectAttachmentsForAI(
         description: "펌웨어 정적 분석 결과 (binwalk 추출 + 프로브)",
         text:
           "=== 펌웨어 정적 분석 결과 (binwalk 추출 파일시스템 프로브) ===\n" +
-          findingsToText(findings).slice(0, MAX_EXTRACTED_TEXT_CHARS),
+          findingsToText(findings).slice(0, MAX_FINDINGS_CHARS),
       });
     }
   } catch (err) {

@@ -201,7 +201,10 @@ export async function aiFillAssessmentFirmware(
     orderBy: { createdAt: "desc" },
   });
   const findings = fa?.findings ? parseFindings(fa.findings) : null;
-  const findingsText = findings ? findingsToText(findings) : "(펌웨어 분석 결과 없음)";
+  // Cap injected findings — large inputs slow every call and risk gateway timeouts.
+  const findingsText = findings
+    ? findingsToText(findings).slice(0, 8000)
+    : "(펌웨어 분석 결과 없음)";
 
   const visibleReqs = DT_REQUIREMENTS.filter(
     (r) =>
@@ -243,7 +246,7 @@ export async function aiFillAssessmentFirmware(
           "모든 출력은 한국어로 작성하라.",
         schema: FwAssessmentSchema,
         schemaName: "fw_assessment",
-        effort: "high",
+        effort: "medium",
         maxTokens: 9000,
       });
 
