@@ -13,6 +13,7 @@ import crypto from "crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireProjectAccess } from "@/lib/auth";
+import { isBackgroundAuthorized } from "@/lib/ai/bg-context";
 import { runFirmwareAnalysis, parseFindings, findingsToText } from "@/lib/ai/firmware";
 import { callStructured } from "@/lib/ai/anthropic";
 import {
@@ -47,12 +48,87 @@ import {
 } from "@/lib/ai/prompts/dt";
 
 async function assertEditable(projectId: string) {
-  await requireProjectAccess(projectId);
+  // Authorized background pipeline run skips the session check (see bg-context.ts),
+  // but the finalized-project lock still applies.
+  if (!isBackgroundAuthorized(projectId)) await requireProjectAccess(projectId);
   const p = await prisma.project.findUnique({
     where: { id: projectId },
     select: { finalizedAt: true },
   });
   if (p?.finalizedAt) throw new Error("확정된 프로젝트는 수정할 수 없습니다. 먼저 확정을 해제하세요.");
+}
+
+// ── Pipeline run: start (background) + status (poll) ───────────────
+export type AiRunStatus = {
+  id: string;
+  status: string; // queued|running|done|failed
+  step: string; // firmware|assets|dt|evidence|assessment|done
+  total: number;
+  completed: number;
+  message: string;
+  error: string | null;
+} | null;
+
+function serializeRun(run: {
+  id: string;
+  status: string;
+  step: string;
+  total: number;
+  completed: number;
+  message: string;
+  error: string | null;
+}): AiRunStatus {
+  return {
+    id: run.id,
+    status: run.status,
+    step: run.step,
+    total: run.total,
+    completed: run.completed,
+    message: run.message,
+    error: run.error,
+  };
+}
+
+export async function getAiPipelineStatus(projectId: string): Promise<AiRunStatus> {
+  await requireProjectAccess(projectId);
+  const run = await prisma.aiPipelineRun.findFirst({
+    where: { projectId },
+    orderBy: { createdAt: "desc" },
+  });
+  return run ? serializeRun(run) : null;
+}
+
+// Start the whole pipeline as a background job. Returns immediately; the client
+// polls getAiPipelineStatus. No long blocking request → no gateway timeout, and
+// the run survives the user closing the tab.
+export async function startAiPipeline(projectId: string): Promise<AiRunStatus> {
+  await assertEditable(projectId);
+  const fwCount = await prisma.projectAttachment.count({
+    where: { projectId, kind: "firmware" },
+  });
+  if (fwCount === 0) throw new Error("펌웨어 첨부가 없습니다. 프로젝트 등록 시 펌웨어를 첨부하세요.");
+
+  const inflight = await prisma.aiPipelineRun.findFirst({
+    where: { projectId, status: { in: ["queued", "running"] } },
+    orderBy: { createdAt: "desc" },
+  });
+  if (inflight) {
+    const stale = Date.now() - inflight.updatedAt.getTime() > 30 * 60 * 1000;
+    if (!stale) return serializeRun(inflight);
+    await prisma.aiPipelineRun.update({
+      where: { id: inflight.id },
+      data: { status: "failed", error: "중단됨(서버 재시작 추정)", finishedAt: new Date() },
+    });
+  }
+
+  const run = await prisma.aiPipelineRun.create({
+    data: { projectId, status: "queued", message: "대기 중…" },
+  });
+  // Dynamic import avoids a static import cycle with run-pipeline.ts.
+  const { runFullPipeline } = await import("@/lib/ai/run-pipeline");
+  void runFullPipeline(run.id).catch(() => {});
+  revalidatePath(`/projects/${projectId}/result`);
+  return serializeRun(run);
 }
 
 // Clear AI-generated (unreviewed) assets before a re-run so the orchestration

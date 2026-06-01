@@ -66,10 +66,14 @@ import {
 import { evaluateScreening } from "@/lib/screening-questions";
 import type { StandardId } from "@/lib/mechanisms";
 import { requireSession } from "@/lib/auth";
+import { isBackgroundAuthorized } from "@/lib/ai/bg-context";
 
 // Reuse the editable-guard pattern from actions.ts. Inline here rather than
 // importing to avoid circular deps with actions.ts.
 async function assertProjectEditable(projectId: string) {
+  // Authorized background pipeline run — skip the session check (the run was
+  // authorized when it was started; see bg-context.ts).
+  if (isBackgroundAuthorized(projectId)) return;
   const session = await requireSession();
   const project = await prisma.project.findUnique({
     where: { id: projectId },
