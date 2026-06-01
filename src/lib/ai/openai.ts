@@ -235,7 +235,6 @@ export async function runAIWithAttachments<T>(opts: {
       effort: AI_EFFORT,
       format: {
         type: "json_schema",
-        name: opts.schemaName,
         schema: opts.jsonSchema,
       },
     },
