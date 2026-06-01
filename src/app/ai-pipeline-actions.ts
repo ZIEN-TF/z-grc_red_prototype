@@ -32,9 +32,19 @@ import {
   walkTree,
   type AssessmentType,
   type NodeAnswer,
+  type DTNode,
+  type DTBranch,
 } from "@/lib/decision-trees";
 import { evaluateScreening } from "@/lib/screening-questions";
 import type { StandardId } from "@/lib/mechanisms";
+import { kindConfig } from "@/lib/asset-kinds";
+import { runAIWithAttachments, loadProjectAttachmentsForAI } from "@/lib/ai/openai";
+import {
+  DT_SYSTEM_PROMPT,
+  buildDTUserPrompt,
+  buildDTJsonSchema,
+  type DTAIResult,
+} from "@/lib/ai/prompts/dt";
 
 async function assertEditable(projectId: string) {
   await requireProjectAccess(projectId);
@@ -102,6 +112,162 @@ export async function startFirmwareAnalysis(projectId: string): Promise<Firmware
       .catch(() => {});
   });
   return { id: fa.id, status: "pending", error: null };
+}
+
+// ── DT fill — ONE bundled call per requirement (all asset iterations) ──
+// Replaces the per-iteration + per-node-fallback approach (which made hundreds
+// of calls). Sonnet answers the whole tree for every iteration in one call;
+// off-path answers are dropped server-side. Iterations the model leaves
+// incomplete are simply not persisted (the user finishes those manually).
+export async function aiFillDTRequirementBundled(
+  projectId: string,
+  requirementId: string,
+): Promise<{ saved: number; iterations: number }> {
+  await assertEditable(projectId);
+  const req = requirementById(requirementId);
+  if (!req) throw new Error(`알 수 없는 DT 요구사항: ${requirementId}`);
+
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    include: { assets: true, screeningAnswers: true },
+  });
+  if (!project) throw new Error("프로젝트를 찾을 수 없습니다.");
+
+  const screening: Record<string, "yes" | "no"> = {};
+  for (const a of project.screeningAnswers) {
+    if (a.answer === "yes" || a.answer === "no") screening[a.questionId] = a.answer;
+  }
+  const recomputed = evaluateScreening(screening);
+  const applicable: StandardId[] =
+    recomputed.applicableStandards.length > 0
+      ? recomputed.applicableStandards
+      : ([project.applicable1 && 1, project.applicable2 && 2, project.applicable3 && 3].filter(
+          Boolean,
+        ) as StandardId[]);
+
+  const parsedAssets = project.assets.map((a) => ({
+    id: a.id,
+    kind: a.kind,
+    name: a.name,
+    metadata: safeJson(a.metadata),
+  }));
+
+  const iterations = req.iterateOver
+    ? matchAssetsForRequirement(
+        req,
+        parsedAssets,
+        getApplicableKindsFor(req, DT_REQUIREMENTS, applicable),
+      ).map((a) => ({
+        assetKey: a.id,
+        label: `${a.name} (${kindConfig(a.kind)?.title_ko ?? a.kind})`,
+        metadata: a.metadata,
+      }))
+    : [{ assetKey: "__global__", label: "기기 전체 / Global", metadata: {} as Record<string, string> }];
+  if (iterations.length === 0) return { saved: 0, iterations: 0 };
+
+  const attachments = await loadProjectAttachmentsForAI(projectId);
+  const assetSummary = parsedAssets
+    .map(
+      (a) =>
+        `- ${a.name} (${kindConfig(a.kind)?.title_ko ?? a.kind})` +
+        Object.entries(a.metadata)
+          .filter(([, v]) => v)
+          .map(([k, v]) => ` ${k}=${v}`)
+          .join(""),
+    )
+    .join("\n");
+
+  const result = await runAIWithAttachments<DTAIResult>({
+    systemPrompt: DT_SYSTEM_PROMPT,
+    userPrompt: buildDTUserPrompt({
+      project,
+      requirement: req,
+      iterations,
+      screeningAnswers: screening,
+      assetSummary,
+    }),
+    attachments,
+    jsonSchema: buildDTJsonSchema(req, iterations.map((i) => i.assetKey)),
+    schemaName: "dt_answers",
+  });
+
+  // Resolve on-path answers per iteration (drop off-path).
+  const onPath = (
+    answers: Array<{ nodeId: string; answer: NodeAnswer; reasoning: string }>,
+  ): Array<{ nodeId: string; answer: NodeAnswer; reasoning: string }> => {
+    const map = new Map(answers.filter((a) => req.nodes[a.nodeId]).map((a) => [a.nodeId, a]));
+    const path: Array<{ nodeId: string; answer: NodeAnswer; reasoning: string }> = [];
+    const visited = new Set<string>();
+    let cur: string | undefined = req.rootNodeId;
+    while (cur && !visited.has(cur)) {
+      visited.add(cur);
+      const node: DTNode | undefined = req.nodes[cur];
+      const a = map.get(cur);
+      if (!node || !a) break;
+      path.push(a);
+      if (a.answer === "na") break;
+      const branch: DTBranch = a.answer === "yes" ? node.yes : node.no;
+      if ("outcome" in branch) break;
+      cur = branch.goto;
+    }
+    return path;
+  };
+
+  // Replace unreviewed rows; preserve user-reviewed. (null assetId can't go in a
+  // SQLite WHERE via the driver, so load-all + filter-in-JS + delete-by-id.)
+  const allExisting = await prisma.dTAnswer.findMany({
+    where: { projectId, requirementId: req.id },
+    select: { id: true, assetId: true, nodeId: true, userReviewed: true },
+  });
+  const reviewedKeys = new Set(
+    allExisting.filter((r) => r.userReviewed).map((r) => `${r.assetId ?? ""}::${r.nodeId}`),
+  );
+  const idsToDelete = allExisting.filter((r) => !r.userReviewed).map((r) => r.id);
+  if (idsToDelete.length > 0) {
+    await prisma.dTAnswer.deleteMany({ where: { id: { in: idsToDelete } } });
+  }
+
+  const validKeys = new Set(iterations.map((i) => i.assetKey));
+  const now = new Date();
+  const toCreate: Array<{
+    projectId: string;
+    assetId: string | null;
+    mechanismCode: string;
+    requirementId: string;
+    nodeId: string;
+    answer: string;
+    notes: string | null;
+    aiGenerated: boolean;
+    aiGeneratedAt: Date;
+    userReviewed: boolean;
+  }> = [];
+  const createdKeys = new Set<string>();
+  for (const it of result.iterations) {
+    if (!validKeys.has(it.assetKey)) continue;
+    const assetId = it.assetKey === "__global__" ? null : it.assetKey;
+    const prefix = assetId ?? "";
+    for (const ans of onPath(it.answers)) {
+      const key = `${prefix}::${ans.nodeId}`;
+      if (reviewedKeys.has(key) || createdKeys.has(key)) continue;
+      createdKeys.add(key);
+      toCreate.push({
+        projectId,
+        assetId,
+        mechanismCode: req.mechanismCode,
+        requirementId: req.id,
+        nodeId: ans.nodeId,
+        answer: ans.answer,
+        notes: ans.reasoning ?? null,
+        aiGenerated: true,
+        aiGeneratedAt: now,
+        userReviewed: false,
+      });
+    }
+  }
+  if (toCreate.length > 0) await prisma.dTAnswer.createMany({ data: toCreate });
+
+  revalidatePath(`/projects/${projectId}/dt/${req.id}`);
+  return { saved: toCreate.length, iterations: iterations.length };
 }
 
 // ── Firmware-grounded functional assessment (#5) ──────────────────

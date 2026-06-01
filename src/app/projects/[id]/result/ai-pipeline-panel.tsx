@@ -19,11 +19,11 @@ import {
   getFirmwareStatus,
   aiFillAssessmentFirmware,
   resetAiGeneratedAssets,
+  aiFillDTRequirementBundled,
 } from "@/app/ai-pipeline-actions";
 import {
   aiFillAssets,
   aiFillDTInit,
-  aiFillDTIteration,
   aiFillEvidenceAll,
 } from "@/app/ai-actions";
 
@@ -104,18 +104,20 @@ export function AiPipelinePanel({
       setPhase("dt");
       setMessage("Decision Tree 준비 중 (인스턴스 생성)…");
       const init = await aiFillDTInit(projectId);
-      const iters = init.iterations;
-      setDtTotal(iters.length);
-      for (let i = 0; i < iters.length; i++) {
+      // One bundled AI call per requirement (covers all its asset iterations)
+      // — far fewer calls than per-iteration.
+      const reqIds = init.requirementIds;
+      setDtTotal(reqIds.length);
+      for (let i = 0; i < reqIds.length; i++) {
         setDtDone(i);
-        setMessage(`DT 평가 ${iters[i].label}`);
+        setMessage(`DT 평가 ${reqIds[i]}`);
         try {
-          await aiFillDTIteration(projectId, iters[i].requirementId, iters[i].assetKey);
+          await aiFillDTRequirementBundled(projectId, reqIds[i]);
         } catch (e) {
-          warn.push(`DT ${iters[i].requirementId}: ${e instanceof Error ? e.message : String(e)}`);
+          warn.push(`DT ${reqIds[i]}: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
-      setDtDone(iters.length);
+      setDtDone(reqIds.length);
 
       // 4) Evidence (required information).
       setPhase("evidence");
