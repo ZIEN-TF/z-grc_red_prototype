@@ -1,82 +1,318 @@
 "use server";
 
+// Server actions that support the /result "AI 전체 자동 수행" orchestration.
+// The /result panel drives the sequence client-side (each call carries the
+// session): firmware analysis → assets → DT (+instances) → evidence →
+// firmware-grounded assessment. Firmware analysis is long, so it runs in the
+// background and the client polls its status.
+
 import { revalidatePath } from "next/cache";
+import fs from "fs/promises";
+import path from "path";
+import crypto from "crypto";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireProjectAccess } from "@/lib/auth";
-import { runPipeline } from "@/lib/ai/pipeline";
+import { runFirmwareAnalysis, parseFindings, findingsToText } from "@/lib/ai/firmware";
+import { callStructured } from "@/lib/ai/anthropic";
+import {
+  GROUNDING_INSTRUCTION,
+  definitionsBlock,
+  requirementGrounding,
+  standardOf,
+} from "@/lib/ai/standard-context";
+import {
+  DT_REQUIREMENTS,
+  requirementById,
+  assessmentsFor,
+  evaluateRequirementApplicability,
+  evaluateNAFromRequirement,
+  matchAssetsForRequirement,
+  getApplicableKindsFor,
+  walkTree,
+  type AssessmentType,
+  type NodeAnswer,
+} from "@/lib/decision-trees";
+import { evaluateScreening } from "@/lib/screening-questions";
+import type { StandardId } from "@/lib/mechanisms";
 
-export type PipelineStatus = {
-  id: string;
-  status: string; // queued|running|done|failed|canceled
-  step: string;
-  total: number;
-  completed: number;
-  message: string;
-  error: string | null;
-  startedAt: string | null;
-  finishedAt: string | null;
-} | null;
-
-function serialize(run: {
-  id: string;
-  status: string;
-  step: string;
-  total: number;
-  completed: number;
-  message: string;
-  error: string | null;
-  startedAt: Date | null;
-  finishedAt: Date | null;
-}): PipelineStatus {
-  return {
-    id: run.id,
-    status: run.status,
-    step: run.step,
-    total: run.total,
-    completed: run.completed,
-    message: run.message,
-    error: run.error,
-    startedAt: run.startedAt?.toISOString() ?? null,
-    finishedAt: run.finishedAt?.toISOString() ?? null,
-  };
+async function assertEditable(projectId: string) {
+  await requireProjectAccess(projectId);
+  const p = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { finalizedAt: true },
+  });
+  if (p?.finalizedAt) throw new Error("확정된 프로젝트는 수정할 수 없습니다. 먼저 확정을 해제하세요.");
 }
 
-// Latest pipeline run for a project (for initial render + polling).
-export async function getAiPipelineStatus(projectId: string): Promise<PipelineStatus> {
+// ── Firmware analysis (background) ────────────────────────────────
+export type FirmwareStatus = { id: string; status: string; error: string | null } | null;
+
+export async function getFirmwareStatus(projectId: string): Promise<FirmwareStatus> {
   await requireProjectAccess(projectId);
-  const run = await prisma.aiPipelineRun.findFirst({
+  const fa = await prisma.firmwareAnalysis.findFirst({
     where: { projectId },
     orderBy: { createdAt: "desc" },
   });
-  return run ? serialize(run) : null;
+  return fa ? { id: fa.id, status: fa.status, error: fa.error } : null;
 }
 
-// Start the background pipeline. No-op (returns the existing run) if one is
-// already running for this project.
-export async function startAiPipeline(projectId: string): Promise<PipelineStatus> {
-  await requireProjectAccess(projectId);
+// Start (or reuse) the firmware analysis. Returns immediately; the heavy work
+// runs in the background on the persistent server. Poll getFirmwareStatus.
+export async function startFirmwareAnalysis(projectId: string): Promise<FirmwareStatus> {
+  await assertEditable(projectId);
 
-  const p = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: { screeningComplete: true, finalizedAt: true },
+  const fwCount = await prisma.projectAttachment.count({
+    where: { projectId, kind: "firmware" },
   });
-  if (!p?.screeningComplete) throw new Error("스크리닝을 먼저 완료하세요.");
-  if (p.finalizedAt) throw new Error("확정된 프로젝트는 자동 수행할 수 없습니다. 먼저 확정을 해제하세요.");
+  if (fwCount === 0) throw new Error("펌웨어 첨부가 없습니다. 프로젝트 등록 시 펌웨어를 첨부하세요.");
 
-  const inflight = await prisma.aiPipelineRun.findFirst({
-    where: { projectId, status: { in: ["queued", "running"] } },
+  const done = await prisma.firmwareAnalysis.findFirst({
+    where: { projectId, status: "done" },
     orderBy: { createdAt: "desc" },
   });
-  if (inflight) return serialize(inflight);
+  if (done) return { id: done.id, status: done.status, error: done.error };
 
-  const run = await prisma.aiPipelineRun.create({
-    data: { projectId, status: "queued", message: "대기 중…" },
+  const inflight = await prisma.firmwareAnalysis.findFirst({
+    where: { projectId, status: { in: ["pending", "extracting", "analyzing"] } },
+    orderBy: { createdAt: "desc" },
   });
+  if (inflight) return { id: inflight.id, status: inflight.status, error: inflight.error };
 
-  // Fire-and-forget: the app runs as a persistent Node process (pm2 next start),
-  // so the promise continues after this action returns. The UI polls status.
-  void runPipeline(run.id).catch(() => {});
+  const fa = await prisma.firmwareAnalysis.create({ data: { projectId } });
+  void runFirmwareAnalysis(fa.id).catch(async (err) => {
+    await prisma.firmwareAnalysis
+      .update({
+        where: { id: fa.id },
+        data: { status: "failed", error: err instanceof Error ? err.message : String(err) },
+      })
+      .catch(() => {});
+  });
+  return { id: fa.id, status: "pending", error: null };
+}
 
-  revalidatePath(`/projects/${projectId}/result`);
-  return serialize(run);
+// ── Firmware-grounded functional assessment (#5) ──────────────────
+const FwAssessmentSchema = z.object({
+  assessments: z.array(
+    z.object({
+      type: z.enum(["completeness", "sufficiency", "conceptual_completeness"]),
+      testMethod: z.string(), // 한국어, 기기별 구체 단계
+      testResult: z.string(), // 한국어, 정적 분석으로 실제 확인한 결과
+      verdict: z.enum(["pass", "fail", "not_applicable"]),
+      aiPerformable: z.boolean(), // 실기기 동적 테스트가 반드시 필요하면 false
+      evidenceText: z.string(), // 증적 파일에 저장할 본문(명령/근거/결론)
+    }),
+  ),
+});
+
+function safeJson(s: string): Record<string, string> {
+  try {
+    const o = JSON.parse(s);
+    if (o && typeof o === "object") {
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(o)) out[k] = String(v);
+      return out;
+    }
+  } catch {}
+  return {};
+}
+
+// Does this requirement have at least one PASS/FAIL iteration? (mirrors the
+// assessment page gating). Returns the set of asset metadata for grounding.
+function requirementIsActive(
+  req: (typeof DT_REQUIREMENTS)[number],
+  parsedAssets: Array<{ id: string; kind: string; metadata: Record<string, string> }>,
+  dtAnswers: Array<{ requirementId: string; assetId: string | null; nodeId: string; answer: string }>,
+  applicable: StandardId[],
+): boolean {
+  const tally = (assetId: string | null): boolean => {
+    if (req.naFromRequirement) {
+      const linked = dtAnswers
+        .filter(
+          (d) =>
+            d.requirementId === req.naFromRequirement!.requirementId &&
+            (d.assetId ?? null) === assetId,
+        )
+        .map((d) => ({ nodeId: d.nodeId, answer: d.answer as NodeAnswer }));
+      if (
+        evaluateNAFromRequirement(req, linked, requirementById(req.naFromRequirement!.requirementId))
+          .applies
+      )
+        return false;
+    }
+    const answers: Record<string, NodeAnswer> = {};
+    for (const d of dtAnswers) {
+      if (d.requirementId === req.id && (d.assetId ?? null) === assetId) {
+        if (d.answer === "yes" || d.answer === "no" || d.answer === "na")
+          answers[d.nodeId] = d.answer;
+      }
+    }
+    if (Object.keys(answers).length === 0) return false;
+    const walk = walkTree(req, answers);
+    return walk.kind === "outcome" && (walk.outcome === "pass" || walk.outcome === "fail");
+  };
+
+  if (req.iterateOver) {
+    const matched = matchAssetsForRequirement(
+      req,
+      parsedAssets,
+      getApplicableKindsFor(req, DT_REQUIREMENTS, applicable),
+    );
+    return matched.some((a) => tally(a.id));
+  }
+  return tally(null);
+}
+
+export async function aiFillAssessmentFirmware(
+  projectId: string,
+): Promise<{ reqsProcessed: number; totalSaved: number; attached: number; errors: string[] }> {
+  await assertEditable(projectId);
+
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    include: { assets: true, dtAnswers: true, dtAssessments: true, screeningAnswers: true },
+  });
+  if (!project) throw new Error("프로젝트를 찾을 수 없습니다.");
+
+  const screening: Record<string, "yes" | "no"> = {};
+  for (const a of project.screeningAnswers) {
+    if (a.answer === "yes" || a.answer === "no") screening[a.questionId] = a.answer;
+  }
+  const recomputed = evaluateScreening(screening);
+  const candidates =
+    recomputed.candidateMechanisms.length > 0
+      ? recomputed.candidateMechanisms
+      : (JSON.parse(project.mechanismCandidates) as string[]);
+  const applicable: StandardId[] =
+    recomputed.applicableStandards.length > 0
+      ? recomputed.applicableStandards
+      : ([project.applicable1 && 1, project.applicable2 && 2, project.applicable3 && 3].filter(
+          Boolean,
+        ) as StandardId[]);
+
+  const parsedAssets = project.assets.map((a) => ({
+    id: a.id,
+    kind: a.kind,
+    metadata: safeJson(a.metadata),
+  }));
+
+  const fa = await prisma.firmwareAnalysis.findFirst({
+    where: { projectId, status: "done" },
+    orderBy: { createdAt: "desc" },
+  });
+  const findings = fa?.findings ? parseFindings(fa.findings) : null;
+  const findingsText = findings ? findingsToText(findings) : "(펌웨어 분석 결과 없음)";
+
+  const visibleReqs = DT_REQUIREMENTS.filter(
+    (r) =>
+      candidates.includes(r.mechanismCode) &&
+      r.standards.some((s) => applicable.includes(s)) &&
+      evaluateRequirementApplicability(r, screening).applies &&
+      assessmentsFor(r.id).length > 0,
+  );
+
+  const errors: string[] = [];
+  let reqsProcessed = 0;
+  let totalSaved = 0;
+  let attached = 0;
+  const now = new Date();
+
+  for (const req of visibleReqs) {
+    try {
+      if (!requirementIsActive(req, parsedAssets, project.dtAnswers, applicable)) continue;
+      const types = assessmentsFor(req.id);
+      const std = standardOf(req.id);
+
+      const system = [
+        GROUNDING_INSTRUCTION,
+        "# 펌웨어 정적 분석 결과 (binwalk 추출 파일시스템)\n" + findingsText,
+        definitionsBlock(std),
+      ].join("\n\n");
+
+      const res = await callStructured({
+        system,
+        user:
+          requirementGrounding(req.id, types) +
+          "\n\n## 작업\n아래 평가 유형 각각에 대해, **펌웨어 정적 분석 결과**와 assessment unit을 근거로 평가를 수행하라.\n" +
+          `평가 유형: ${types.join(", ")}.\n` +
+          "- testMethod: 이 기기에 맞는 구체적 테스트 방법(한국어).\n" +
+          "- testResult: 정적 분석으로 **실제 확인한 결과**(한국어). 펌웨어로 판단 가능한 것은 최대한 직접 판정하라.\n" +
+          "- verdict: 판정 기준(Assignment of verdict)을 적용해 pass/fail/not_applicable.\n" +
+          "- aiPerformable: **실기기 구동·네트워크 동작·하드웨어가 반드시 필요한 경우에만 false**. 펌웨어 정적 분석/문서로 판단 가능하면 true로 하고 직접 수행하라(사람 테스트를 최소화하는 것이 목표).\n" +
+          "- evidenceText: 증적 파일에 저장할 본문(한국어). 어떤 파일/명령/근거로 확인했는지, 발견 내용, 결론을 적어라.\n" +
+          "모든 출력은 한국어로 작성하라.",
+        schema: FwAssessmentSchema,
+        schemaName: "fw_assessment",
+        effort: "high",
+        maxTokens: 9000,
+      });
+
+      const validTypes = new Set<AssessmentType>(types);
+      for (const a of res.assessments) {
+        if (!validTypes.has(a.type as AssessmentType)) continue;
+
+        const existing = await prisma.dTAssessment.findFirst({
+          where: { projectId, assetId: null, requirementId: req.id, assessmentType: a.type },
+        });
+        if (existing?.userReviewed) continue;
+
+        let testResult = a.testResult?.trim() ?? "";
+        if (!a.aiPerformable) {
+          testResult = `AI 수행 불가 — 실기기 동적 테스트 필요.\n${testResult}`.trim();
+        }
+
+        // Write the AI-generated evidence as a .txt and attach it (only when
+        // the AI actually performed the check).
+        let attach: {
+          attachmentFilename: string;
+          attachmentStoredPath: string;
+          attachmentMimeType: string;
+          attachmentSize: number;
+        } | null = null;
+        if (a.aiPerformable && a.evidenceText?.trim()) {
+          const dir = path.join(process.cwd(), "uploads", projectId, "assessments");
+          await fs.mkdir(dir, { recursive: true });
+          const filename = `${req.id}-${a.type}-evidence.txt`.replace(/[^\w.\-]/g, "_");
+          const storedPath = path.posix.join(
+            projectId,
+            "assessments",
+            `${crypto.randomUUID()}-${filename}`,
+          );
+          const full = path.join(process.cwd(), "uploads", storedPath);
+          const body = `# ${req.id} — ${a.type} 증적 (AI 자동 생성)\n\n## 테스트 방법\n${a.testMethod}\n\n## 테스트 결과\n${testResult}\n\n## 근거\n${a.evidenceText}\n`;
+          await fs.writeFile(full, body, "utf8");
+          attach = {
+            attachmentFilename: filename,
+            attachmentStoredPath: storedPath,
+            attachmentMimeType: "text/plain",
+            attachmentSize: Buffer.byteLength(body),
+          };
+          attached++;
+        }
+
+        const data = {
+          testMethod: a.testMethod?.trim() ?? "",
+          testResult,
+          verdict: a.aiPerformable ? a.verdict : null,
+          aiGenerated: true,
+          aiGeneratedAt: now,
+          ...(attach ?? {}),
+        };
+        if (existing) {
+          await prisma.dTAssessment.update({ where: { id: existing.id }, data });
+        } else {
+          await prisma.dTAssessment.create({
+            data: { projectId, assetId: null, requirementId: req.id, assessmentType: a.type, ...data },
+          });
+        }
+        totalSaved++;
+      }
+      reqsProcessed++;
+    } catch (err) {
+      errors.push(`${req.id}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  revalidatePath(`/projects/${projectId}/assessment`, "layout");
+  return { reqsProcessed, totalSaved, attached, errors };
 }

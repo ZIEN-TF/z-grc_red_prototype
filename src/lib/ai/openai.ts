@@ -16,6 +16,7 @@ import path from "path";
 import mammoth from "mammoth";
 import * as XLSX from "xlsx";
 import { prisma } from "@/lib/prisma";
+import { findingsToText, parseFindings } from "./firmware";
 
 let _client: Anthropic | null = null;
 
@@ -137,6 +138,30 @@ export async function loadProjectAttachmentsForAI(
       );
     }
   }
+
+  // Append the firmware analysis findings (if available) as a text block so the
+  // AI grounds asset/DT/evidence/assessment fills in what's actually in the
+  // firmware, not just the documents.
+  try {
+    const fa = await prisma.firmwareAnalysis.findFirst({
+      where: { projectId, status: "done" },
+      orderBy: { createdAt: "desc" },
+    });
+    const findings = fa?.findings ? parseFindings(fa.findings) : null;
+    if (findings) {
+      out.push({
+        kind: "text",
+        filename: "firmware-analysis.txt",
+        description: "펌웨어 정적 분석 결과 (binwalk 추출 + 프로브)",
+        text:
+          "=== 펌웨어 정적 분석 결과 (binwalk 추출 파일시스템 프로브) ===\n" +
+          findingsToText(findings).slice(0, MAX_EXTRACTED_TEXT_CHARS),
+      });
+    }
+  } catch (err) {
+    console.error("Failed to load firmware findings for AI context:", err);
+  }
+
   return out;
 }
 
