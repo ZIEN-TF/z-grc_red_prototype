@@ -18,6 +18,7 @@ import {
   startFirmwareAnalysis,
   getFirmwareStatus,
   aiFillAssessmentFirmware,
+  resetAiGeneratedAssets,
 } from "@/app/ai-pipeline-actions";
 import {
   aiFillAssets,
@@ -92,9 +93,11 @@ export function AiPipelinePanel({
         throw new Error("펌웨어 분석 실패: " + (fw.error ?? "원인 미상"));
       }
 
-      // 2) Assets (full metadata, Korean).
+      // 2) Assets (full metadata, Korean). Clear prior AI assets first so
+      // re-runs replace instead of accumulating duplicates.
       setPhase("assets");
-      setMessage("AI가 펌웨어·문서에서 자산을 식별하는 중…");
+      setMessage("이전 AI 자산 정리 후 식별 중…");
+      await resetAiGeneratedAssets(projectId);
       await aiFillAssets(projectId);
 
       // 3) DT — instance creation (ACM/auth/SUM) + per-iteration fill.

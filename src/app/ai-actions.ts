@@ -246,8 +246,21 @@ export async function aiFillAssets(projectId: string) {
   const now = new Date();
   let inserted = 0;
 
+  // Dedup guard: skip assets that duplicate an existing one or repeat within
+  // this AI response (keyed by kind + normalized name).
+  const existingAssets = await prisma.asset.findMany({
+    where: { projectId },
+    select: { kind: true, name: true },
+  });
+  const seenAssetKeys = new Set<string>(
+    existingAssets.map((e) => `${e.kind}::${e.name.trim().toLowerCase()}`),
+  );
+
   for (const a of result.assets) {
     if (!allowedKindNames.has(a.kind)) continue;
+    const dedupKey = `${a.kind}::${a.name.trim().toLowerCase()}`;
+    if (seenAssetKeys.has(dedupKey)) continue;
+    seenAssetKeys.add(dedupKey);
     const cfg = kindConfig(a.kind);
     if (!cfg) continue;
     const fieldNames = new Set(cfg.metadataFields.map((f) => f.name));

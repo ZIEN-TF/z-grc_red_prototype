@@ -190,8 +190,12 @@ export async function runAIWithAttachments<T>(opts: {
 }): Promise<T> {
   const client = getClient();
 
+  // Build the STABLE attachment prefix first (identical across all calls in a
+  // run), then the volatile per-call prompt last. A cache breakpoint on the
+  // last stable block lets every subsequent call (DT does many) re-read the
+  // attachments + system from cache at ~0.1x instead of re-sending the PDFs.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const userContent: any[] = [{ type: "text", text: opts.userPrompt }];
+  const userContent: any[] = [];
   for (const a of opts.attachments) {
     if (a.kind === "image") {
       const parsed = parseDataUrl(a.dataUrl);
@@ -230,6 +234,16 @@ export async function runAIWithAttachments<T>(opts: {
       text: `[첨부 파일 설명: "${a.filename}" — ${a.description || "(설명 없음)"}]`,
     });
   }
+  // Cache the stable prefix (system + attachments). 1h TTL so it survives a
+  // long multi-minute run without re-writing.
+  if (userContent.length > 0) {
+    userContent[userContent.length - 1] = {
+      ...userContent[userContent.length - 1],
+      cache_control: { type: "ephemeral", ttl: "1h" },
+    };
+  }
+  // Volatile per-call prompt goes AFTER the cached prefix.
+  userContent.push({ type: "text", text: opts.userPrompt });
 
   const res = (await client.messages.create({
     model: opts.model ?? AI_MODEL,

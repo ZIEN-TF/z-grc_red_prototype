@@ -45,6 +45,19 @@ async function assertEditable(projectId: string) {
   if (p?.finalizedAt) throw new Error("확정된 프로젝트는 수정할 수 없습니다. 먼저 확정을 해제하세요.");
 }
 
+// Clear AI-generated (unreviewed) assets before a re-run so the orchestration
+// is idempotent — aiFillAssets only inserts, so without this, repeated runs
+// pile up duplicate assets. Cascades to their AI DT answers/evidence/assessment.
+export async function resetAiGeneratedAssets(projectId: string): Promise<{ deleted: number }> {
+  await assertEditable(projectId);
+  const r = await prisma.asset.deleteMany({
+    where: { projectId, aiGenerated: true, userReviewed: false },
+  });
+  revalidatePath(`/projects/${projectId}/assets`);
+  revalidatePath(`/projects/${projectId}/assets/review`);
+  return { deleted: r.count };
+}
+
 // ── Firmware analysis (background) ────────────────────────────────
 export type FirmwareStatus = { id: string; status: string; error: string | null } | null;
 
