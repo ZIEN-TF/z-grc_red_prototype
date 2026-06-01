@@ -456,9 +456,9 @@ export async function aiFillAssessmentFirmware(
     orderBy: { createdAt: "desc" },
   });
   const findings = fa?.findings ? parseFindings(fa.findings) : null;
-  // Cap injected findings — large inputs slow every call and risk gateway timeouts.
+  // Findings are static within a run; cap kept generous (cached downstream).
   const findingsText = findings
-    ? findingsToText(findings).slice(0, 8000)
+    ? findingsToText(findings).slice(0, 16000)
     : "(펌웨어 분석 결과 없음)";
 
   const visibleReqs = DT_REQUIREMENTS.filter(

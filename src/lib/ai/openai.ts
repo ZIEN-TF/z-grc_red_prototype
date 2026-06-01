@@ -42,9 +42,10 @@ const AI_EFFORT = (process.env.AI_EFFORT ?? "low") as
   | "high"
   | "max";
 
-// Cap how much firmware-findings text is inlined per call — large inputs slow
-// every request (prefill + reasoning) and risk gateway timeouts.
-const MAX_FINDINGS_CHARS = 8000;
+// Cap how much firmware-findings text is inlined per call. Findings are cached
+// (1h breakpoint), so the cost is mostly a one-time write; keep it generous
+// enough to carry the important probes.
+const MAX_FINDINGS_CHARS = 16000;
 
 export type AttachmentInput =
   | { kind: "image"; dataUrl: string; filename: string; description: string }
