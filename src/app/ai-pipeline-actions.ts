@@ -263,15 +263,21 @@ export async function aiFillDTRequirementBundled(
     )
     .join("\n");
 
+  // Reflect the customer's reject reason (if any) into the re-run prompt.
+  const feedbackBlock = project.aiFeedbackNote?.trim()
+    ? `\n\n## 고객 보완 요청 (이전 결과 반려 사유)\n${project.aiFeedbackNote.trim()}\n위 피드백을 반영하여 평가를 보완하라.`
+    : "";
+
   const result = await runAIWithAttachments<DTAIResult>({
     systemPrompt: DT_SYSTEM_PROMPT,
-    userPrompt: buildDTUserPrompt({
-      project,
-      requirement: req,
-      iterations,
-      screeningAnswers: screening,
-      assetSummary,
-    }),
+    userPrompt:
+      buildDTUserPrompt({
+        project,
+        requirement: req,
+        iterations,
+        screeningAnswers: screening,
+        assetSummary,
+      }) + feedbackBlock,
     attachments,
     jsonSchema: buildDTJsonSchema(req, iterations.map((i) => i.assetKey)),
     schemaName: "dt_answers",

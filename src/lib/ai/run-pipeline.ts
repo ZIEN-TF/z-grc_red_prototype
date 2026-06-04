@@ -152,6 +152,12 @@ export async function runPipeline(runId: string): Promise<void> {
       if (stage === "full" || stage === "dt") await runDtSegment(runId, projectId);
       if (stage === "full" || stage === "assessment") await runAssessmentSegment(runId, projectId);
 
+      // The customer reject reason is one-shot — clear it once the re-run has
+      // consumed it so it doesn't leak into a later run.
+      await prisma.project
+        .update({ where: { id: projectId }, data: { aiFeedbackNote: "" } })
+        .catch(() => {});
+
       // Advance the collaboration workflow + notify the next party, but only
       // for a gated single-stage run still sitting at the matching *_RUNNING
       // phase (the legacy "full" run doesn't drive the workflow).

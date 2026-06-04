@@ -113,8 +113,15 @@ export function confirmTransition(phase: Phase, role: WorkflowRole): Transition 
 export function rejectTransition(phase: Phase, role: WorkflowRole): Transition | null {
   switch (phase) {
     case "ASSETS_CUSTOMER":
+      // Customer reject re-runs the AI assets fill (with their reason fed into
+      // the prompt) AND notifies consultants so they're aware of the churn.
       return role === "customer"
-        ? { next: "ASSETS_RUNNING", startAi: "assets", notifyType: "ASSETS_CUSTOMER_REJECTED" }
+        ? {
+            next: "ASSETS_RUNNING",
+            startAi: "assets",
+            notify: "consultant",
+            notifyType: "ASSETS_CUSTOMER_REJECTED",
+          }
         : null;
     case "ASSETS_CONSULTANT":
       return role === "consultant"
@@ -122,7 +129,12 @@ export function rejectTransition(phase: Phase, role: WorkflowRole): Transition |
         : null;
     case "DT_CUSTOMER":
       return role === "customer"
-        ? { next: "DT_RUNNING", startAi: "dt", notifyType: "DT_CUSTOMER_REJECTED" }
+        ? {
+            next: "DT_RUNNING",
+            startAi: "dt",
+            notify: "consultant",
+            notifyType: "DT_CUSTOMER_REJECTED",
+          }
         : null;
     case "DT_CONSULTANT":
       return role === "consultant"
@@ -206,8 +218,12 @@ export function notificationCopy(type: string, projectName: string): { title: st
       return { title: `[${p}] 자산 목록 검토 요청`, body: "자산 목록이 준비되었습니다. 내용을 확인하고 확정해 주세요." };
     case "ASSETS_CUSTOMER_CONFIRMED":
       return { title: `[${p}] 고객이 자산을 확인했습니다`, body: "자산 목록에 대한 컨설턴트 검토를 진행해 주세요." };
+    case "ASSETS_CUSTOMER_REJECTED":
+      return { title: `[${p}] 고객이 자산을 반려했습니다`, body: "고객이 자산 목록을 반려했습니다. 사유를 반영해 자료를 다시 준비합니다." };
     case "ASSETS_CONSULTANT_REJECTED":
       return { title: `[${p}] 자산 검토 반려`, body: "컨설턴트가 자산 단계를 반려했습니다. 내용을 보완해 주세요." };
+    case "DT_CUSTOMER_REJECTED":
+      return { title: `[${p}] 고객이 DT를 반려했습니다`, body: "고객이 평가 단계를 반려했습니다. 사유를 반영해 자료를 다시 준비합니다." };
     case "DT_READY":
       return { title: `[${p}] DT·조치방안 검토 요청`, body: "평가 결과와 조치 방안이 준비되었습니다. 확인하고 조치 현황을 입력해 주세요." };
     case "DT_CUSTOMER_CONFIRMED":

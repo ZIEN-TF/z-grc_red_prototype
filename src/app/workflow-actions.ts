@@ -49,6 +49,14 @@ async function applyTransition(
   // to the caller if the stage can't start (the phase has already advanced to
   // *_RUNNING, and the UI surfaces the error).
   if (t.startAi) {
+    // A reject carries a reason — store it so the AI re-run prompt can address
+    // it ("보완해서 다시 만들어라"). Confirms have no note, so this is skipped.
+    if (note && note.trim()) {
+      await prisma.project.update({
+        where: { id: projectId },
+        data: { aiFeedbackNote: note.trim() },
+      });
+    }
     await startAiPipeline(projectId, t.startAi);
   }
 }

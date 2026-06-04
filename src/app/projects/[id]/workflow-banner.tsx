@@ -12,6 +12,7 @@ import { CheckCircle2, Clock, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { confirmStage, rejectStage } from "@/app/workflow-actions";
+import { finalizeProject } from "@/app/actions";
 import {
   type Phase,
   type WorkflowRole,
@@ -67,9 +68,13 @@ export function WorkflowBanner({
   const [pending, startTransition] = useTransition();
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
+  const [finalizing, setFinalizing] = useState(false);
 
   const canConfirm = confirmTransition(phase, role) !== null;
   const canReject = rejectTransition(phase, role) !== null;
+  // At the assessment stage the consultant completes by finalizing — that
+  // single action locks the report and notifies the customer to confirm.
+  const canFinalize = phase === "ASSESSMENT" && role === "consultant";
   const isRunning = PHASE_ACTOR[phase] === "ai";
 
   function onConfirm() {
@@ -102,7 +107,20 @@ export function WorkflowBanner({
     });
   }
 
-  const isMyTurn = canConfirm || canReject;
+  function onFinalize() {
+    startTransition(async () => {
+      try {
+        await finalizeProject({ projectId });
+        toast.success("기능 평가를 완료하고 고객에게 최종 확인을 요청했습니다.");
+        setFinalizing(false);
+        router.refresh();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "처리 중 오류가 발생했습니다.");
+      }
+    });
+  }
+
+  const isMyTurn = canConfirm || canReject || canFinalize;
 
   return (
     <div
@@ -148,9 +166,37 @@ export function WorkflowBanner({
                 {CONFIRM_LABEL[phase] ?? "확인 완료"}
               </Button>
             )}
+            {canFinalize && !finalizing && (
+              <Button size="sm" disabled={pending} onClick={() => setFinalizing(true)}>
+                <CheckCircle2 className="size-3.5" />
+                기능 평가 완료
+              </Button>
+            )}
           </div>
         )}
       </div>
+
+      {finalizing && (
+        <div className="mt-3 space-y-2 border-t pt-3">
+          <p className="text-sm">
+            기능 평가를 완료하고 고객에게 최종 리포트 확인을 요청합니다. 진행할까요?
+            <span className="text-muted-foreground"> (이후 프로젝트는 확정·잠금되며, 필요 시 다시 열 수 있습니다.)</span>
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={pending}
+              onClick={() => setFinalizing(false)}
+            >
+              취소
+            </Button>
+            <Button size="sm" disabled={pending} onClick={onFinalize}>
+              완료 및 고객 확인 요청
+            </Button>
+          </div>
+        </div>
+      )}
 
       {rejecting && (
         <div className="mt-3 space-y-2 border-t pt-3">

@@ -203,12 +203,19 @@ export async function aiFillAssets(projectId: string) {
       applicable3: true,
       screeningComplete: true,
       screeningAnswers: true,
+      aiFeedbackNote: true,
     },
   });
   if (!project) throw new Error("프로젝트를 찾을 수 없습니다.");
   if (!project.screeningComplete) {
     throw new Error("먼저 스크리닝을 완료해 주세요.");
   }
+
+  // If the customer rejected a prior asset list, weave their reason into the
+  // prompt so the re-run addresses it instead of reproducing the same output.
+  const feedbackBlock = project.aiFeedbackNote?.trim()
+    ? `\n\n## 고객 보완 요청 (이전 결과 반려 사유)\n${project.aiFeedbackNote.trim()}\n위 피드백을 반영하여 자산 목록을 보완·수정하라.`
+    : "";
 
   const applicableStandards: StandardId[] = [];
   if (project.applicable1) applicableStandards.push(1);
@@ -234,11 +241,9 @@ export async function aiFillAssets(projectId: string) {
 
   const result = await runAIWithAttachments<AssetAIResult>({
     systemPrompt: ASSETS_SYSTEM_PROMPT,
-    userPrompt: buildAssetsUserPrompt(
-      project,
-      applicableKinds,
-      screeningAnswers,
-    ),
+    userPrompt:
+      buildAssetsUserPrompt(project, applicableKinds, screeningAnswers) +
+      feedbackBlock,
     attachments,
     jsonSchema: ASSETS_JSON_SCHEMA as unknown as Record<string, unknown>,
     schemaName: "asset_inventory",
