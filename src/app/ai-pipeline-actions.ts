@@ -118,6 +118,16 @@ export async function startAiPipeline(
     if (fwCount === 0) throw new Error("펌웨어 첨부가 없습니다. 프로젝트 등록 시 펌웨어를 첨부하세요.");
   }
 
+  // Runaway-cost backstop: a project shouldn't accumulate an unbounded number of
+  // AI runs (e.g. via a repeated reject→re-run loop).
+  const AI_RUN_CAP = Number(process.env.AI_RUN_CAP ?? "40");
+  const runCount = await prisma.aiPipelineRun.count({ where: { projectId } });
+  if (runCount >= AI_RUN_CAP) {
+    throw new Error(
+      "이 프로젝트의 자동 분석 횟수가 한도를 초과했습니다. 컨설턴트에게 문의하세요.",
+    );
+  }
+
   const inflight = await prisma.aiPipelineRun.findFirst({
     where: { projectId, status: { in: ["queued", "running"] } },
     orderBy: { createdAt: "desc" },

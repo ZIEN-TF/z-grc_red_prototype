@@ -197,6 +197,26 @@ export async function runPipeline(runId: string): Promise<void> {
           data: { status: "failed", error: msg(err), finishedAt: new Date() },
         })
         .catch(() => {});
+      // Notify consultants so a stuck "*_RUNNING" phase is actionable (retry).
+      try {
+        const proj = await prisma.project.findUnique({
+          where: { id: projectId },
+          select: { name: true },
+        });
+        if (proj) {
+          const copy = notificationCopy("AI_FAILED", proj.name);
+          await notify({
+            projectId,
+            to: "consultant",
+            type: "AI_FAILED",
+            title: copy.title,
+            body: copy.body,
+            linkPath: `/projects/${projectId}`,
+          });
+        }
+      } catch {
+        /* best-effort */
+      }
     }
   });
 }

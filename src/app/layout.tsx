@@ -28,6 +28,8 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const session = await getSession();
+  const isMock =
+    process.env.AI_MOCK === "1" || process.env.AI_MOCK === "true";
 
   return (
     <html
@@ -35,6 +37,11 @@ export default async function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
+        {isMock && (
+          <div className="bg-amber-500 px-4 py-1 text-center text-xs font-semibold text-amber-950 print:hidden">
+            ⚠ 테스트 모드 (AI_MOCK) — AI가 실제로 동작하지 않고 가상 데이터가 채워집니다.
+          </div>
+        )}
         <header className="border-b bg-card/60 backdrop-blur print:hidden">
           <div className="container mx-auto flex h-14 items-center justify-between px-4">
             <Link href="/" className="flex items-baseline gap-2">

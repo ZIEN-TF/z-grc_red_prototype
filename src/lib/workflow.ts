@@ -160,6 +160,41 @@ export const AI_DONE_TRANSITION: Record<
   assessment: { from: "ASSESSMENT_RUNNING", next: "ASSESSMENT", notify: "consultant", notifyType: "ASSESSMENT_READY" },
 };
 
+// Which AI stage a "*_RUNNING" phase is executing (for failure-retry).
+export function runningStageFor(phase: Phase): GatedAiStage | null {
+  if (phase === "ASSETS_RUNNING") return "assets";
+  if (phase === "DT_RUNNING") return "dt";
+  if (phase === "ASSESSMENT_RUNNING") return "assessment";
+  return null;
+}
+
+// Coarse milestones for the progress stepper (the 11 phases collapse to 6).
+export const MILESTONES = ["등록", "자산", "DT·평가", "기능평가", "리포트", "완료"] as const;
+
+export function phaseMilestoneIndex(phase: Phase): number {
+  switch (phase) {
+    case "INTAKE":
+      return 0;
+    case "ASSETS_RUNNING":
+    case "ASSETS_CUSTOMER":
+    case "ASSETS_CONSULTANT":
+      return 1;
+    case "DT_RUNNING":
+    case "DT_CUSTOMER":
+    case "DT_CONSULTANT":
+      return 2;
+    case "ASSESSMENT_RUNNING":
+    case "ASSESSMENT":
+      return 3;
+    case "REPORT_CUSTOMER":
+      return 4;
+    case "DONE":
+      return 5;
+    default:
+      return 0;
+  }
+}
+
 // Role-aware project status for the home project list. Customer-facing copy
 // never mentions AI (a "running" stage reads as "준비 중"). `isMyTurn` drives
 // the highlight + top-sort; `ctaPath` is the suffix after /projects/{id}.
@@ -238,6 +273,8 @@ export function notificationCopy(type: string, projectName: string): { title: st
       return { title: `[${p}] 고객이 최종 리포트를 확인했습니다`, body: "프로젝트가 완료 처리되었습니다." };
     case "REPORT_CUSTOMER_REJECTED":
       return { title: `[${p}] 최종 리포트 반려`, body: "고객이 최종 리포트를 반려했습니다. 내용을 재검토해 주세요." };
+    case "AI_FAILED":
+      return { title: `[${p}] 자동 분석 실패`, body: "AI 자동 분석이 실패했습니다. 프로젝트에서 다시 시도해 주세요." };
     default:
       return { title: `[${p}] 알림`, body: "" };
   }

@@ -58,3 +58,19 @@ export async function markAllNotificationsRead(): Promise<void> {
     data: { readAt: new Date() },
   });
 }
+
+// Dismiss a single notification (scoped to the current user).
+export async function deleteNotification(id: string): Promise<void> {
+  const s = await requireSession();
+  await prisma.notification.deleteMany({
+    where: { id, recipientUserId: s.userId },
+  });
+}
+
+// Clear all already-read notifications for the current user.
+export async function clearReadNotifications(): Promise<void> {
+  const s = await requireSession();
+  await prisma.notification.deleteMany({
+    where: { recipientUserId: s.userId, readAt: { not: null } },
+  });
+}

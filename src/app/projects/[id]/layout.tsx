@@ -32,6 +32,17 @@ export default async function ProjectLayout({
     redirect("/forbidden");
   }
 
+  // If the AI stage for a "*_RUNNING" phase failed, surface a retry in the banner.
+  let aiFailed = false;
+  if (project.phase.endsWith("_RUNNING")) {
+    const run = await prisma.aiPipelineRun.findFirst({
+      where: { projectId: project.id },
+      orderBy: { createdAt: "desc" },
+      select: { status: true },
+    });
+    aiFailed = run?.status === "failed";
+  }
+
   // Completion flags for sidebar badges.
   const hasDTAnswers = project._count.dtAnswers > 0;
 
@@ -52,6 +63,8 @@ export default async function ProjectLayout({
           projectId={project.id}
           phase={project.phase as Phase}
           role={session.role}
+          ownerless={!project.userId}
+          aiFailed={aiFailed}
         />
         {children}
       </div>

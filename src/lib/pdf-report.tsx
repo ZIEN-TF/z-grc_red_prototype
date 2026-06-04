@@ -100,6 +100,7 @@ export type ReportData = {
     finalizedAt: Date | null;
     finalizedBy: string | null;
     finalizedNote: string | null;
+    reportNo: string | null;
     createdAt: Date;
     updatedAt: Date;
   };
@@ -581,6 +582,8 @@ function verdictLabel(v: VerdictValue): string {
 // ── PDF components ─────────────────────────────────────────────────
 
 function reportNumberOf(data: ReportData): string {
+  // Use the persisted report number when finalized; otherwise a provisional one.
+  if (data.project.reportNo) return data.project.reportNo;
   const d = data.project.finalizedAt ? new Date(data.project.finalizedAt) : data.generatedAt;
   const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(
     d.getDate(),

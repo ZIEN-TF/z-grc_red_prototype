@@ -15,6 +15,7 @@ import {
   confirmTransition,
   rejectTransition,
   notificationCopy,
+  runningStageFor,
 } from "@/lib/workflow";
 import { startAiPipeline } from "@/app/ai-pipeline-actions";
 
@@ -65,10 +66,15 @@ export async function confirmStage(projectId: string, note?: string) {
   const session = await requireProjectAccess(projectId);
   const project = await prisma.project.findUnique({
     where: { id: projectId },
-    select: { phase: true, name: true },
+    select: { phase: true, name: true, userId: true },
   });
   if (!project) throw new Error("프로젝트를 찾을 수 없습니다.");
-  const t = confirmTransition(project.phase as Phase, session.role);
+  const phase = project.phase as Phase;
+  let t = confirmTransition(phase, session.role);
+  // Owner-less (legacy) project: the consultant performs the customer's turns too.
+  if (!t && !project.userId && session.role === "consultant") {
+    t = confirmTransition(phase, "customer");
+  }
   if (!t) throw new Error("지금 단계에서 확인할 수 있는 권한이 없습니다.");
   await applyTransition(projectId, project.name, t, note);
   revalidatePath(`/projects/${projectId}`);
@@ -79,14 +85,56 @@ export async function rejectStage(projectId: string, reason: string) {
   const session = await requireProjectAccess(projectId);
   const project = await prisma.project.findUnique({
     where: { id: projectId },
-    select: { phase: true, name: true },
+    select: { phase: true, name: true, userId: true },
   });
   if (!project) throw new Error("프로젝트를 찾을 수 없습니다.");
-  const t = rejectTransition(project.phase as Phase, session.role);
+  const phase = project.phase as Phase;
+  let t = rejectTransition(phase, session.role);
+  if (!t && !project.userId && session.role === "consultant") {
+    t = rejectTransition(phase, "customer");
+  }
   if (!t) throw new Error("지금 단계에서 반려할 수 있는 권한이 없습니다.");
   await applyTransition(projectId, project.name, t, reason);
   revalidatePath(`/projects/${projectId}`);
   revalidatePath("/");
+}
+
+// Re-run the AI stage for a project stuck at a "*_RUNNING" phase (e.g. after a
+// failure). Idempotent: startAiPipeline returns any in-flight run.
+export async function retryAiStage(projectId: string) {
+  await requireProjectAccess(projectId);
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { phase: true },
+  });
+  if (!project) throw new Error("프로젝트를 찾을 수 없습니다.");
+  const stage = runningStageFor(project.phase as Phase);
+  if (!stage) throw new Error("지금은 다시 시도할 수 있는 단계가 아닙니다.");
+  await startAiPipeline(projectId, stage);
+  revalidatePath(`/projects/${projectId}`);
+}
+
+// Lightweight poll target for the workflow banner: current phase + whether the
+// in-progress AI run failed (so the UI can refresh / show a retry button).
+export async function getWorkflowState(
+  projectId: string,
+): Promise<{ phase: string; aiFailed: boolean } | null> {
+  await requireProjectAccess(projectId);
+  const p = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { phase: true },
+  });
+  if (!p) return null;
+  let aiFailed = false;
+  if (p.phase.endsWith("_RUNNING")) {
+    const run = await prisma.aiPipelineRun.findFirst({
+      where: { projectId },
+      orderBy: { createdAt: "desc" },
+      select: { status: true },
+    });
+    aiFailed = run?.status === "failed";
+  }
+  return { phase: p.phase, aiFailed };
 }
 
 const REMEDIATION_STATUSES = ["pending", "done", "in_progress", "not_done"];

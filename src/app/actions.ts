@@ -728,12 +728,24 @@ export async function finalizeProject(input: {
   note?: string;
 }) {
   await requireConsultant();
+  // Assign a stable report number on first finalize (kept across unlock/re-finalize).
+  const existing = await prisma.project.findUnique({
+    where: { id: input.projectId },
+    select: { reportNo: true },
+  });
+  const now = new Date();
+  const ymd = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(
+    now.getDate(),
+  ).padStart(2, "0")}`;
+  const reportNo =
+    existing?.reportNo ?? `ZGRC-RED-${input.projectId.slice(0, 6).toUpperCase()}-${ymd}`;
   await prisma.project.update({
     where: { id: input.projectId },
     data: {
-      finalizedAt: new Date(),
+      finalizedAt: now,
       finalizedBy: input.finalizedBy?.trim() || null,
       finalizedNote: input.note?.trim() || null,
+      reportNo,
     },
   });
 

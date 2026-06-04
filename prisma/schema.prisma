@@ -77,6 +77,10 @@ model Project {
   finalizedBy   String?
   finalizedNote String?
 
+  // Report number, assigned once at first finalize so it stays stable across
+  // unlock/re-finalize cycles. Null until first finalized.
+  reportNo String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

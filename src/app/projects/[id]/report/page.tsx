@@ -206,9 +206,11 @@ export default async function ReportPage({
   // Report identity (mirrors the PDF) and a flat, deduped asset list for the
   // scope section.
   const reportDate = project.finalizedAt ? new Date(project.finalizedAt) : new Date();
-  const reportNo = `ZGRC-RED-${project.id.slice(0, 6).toUpperCase()}-${reportDate.getFullYear()}${String(
-    reportDate.getMonth() + 1,
-  ).padStart(2, "0")}${String(reportDate.getDate()).padStart(2, "0")}`;
+  const reportNo =
+    project.reportNo ??
+    `ZGRC-RED-${project.id.slice(0, 6).toUpperCase()}-${reportDate.getFullYear()}${String(
+      reportDate.getMonth() + 1,
+    ).padStart(2, "0")}${String(reportDate.getDate()).padStart(2, "0")}`;
   const scopeAssets = Array.from(
     new Map(
       applicableStandards.flatMap((s) => sections[s].assets).map((a) => [a.id, a]),
