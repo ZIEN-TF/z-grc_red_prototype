@@ -105,6 +105,7 @@ export type ReportData = {
   };
   applicableStandards: StandardId[];
   sections: Record<number, StandardSection>;
+  assets: Array<{ id: string; kind: string; name: string }>;
   attachmentCount: number;
   generatedAt: Date;
   hideAssessments: boolean;
@@ -177,6 +178,11 @@ export function buildReportData(
     project,
     applicableStandards,
     sections,
+    assets: parsedAssets.map((a: { id: string; kind: string; name: string }) => ({
+      id: a.id,
+      kind: a.kind,
+      name: a.name,
+    })),
     attachmentCount: project.attachments.length,
     generatedAt: new Date(),
     hideAssessments: !!opts.hideAssessments,
@@ -451,7 +457,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   kv: { flexDirection: "row", marginBottom: 2 },
-  kvLabel: { color: colors.muted, fontSize: 8, width: 70 },
+  kvLabel: { color: colors.muted, fontSize: 8, width: 96 },
   kvValue: { flex: 1, fontSize: 9 },
   badge: {
     paddingHorizontal: 5,
@@ -509,6 +515,45 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderRadius: 3,
   },
+  // Content pages leave room for the fixed running header/footer.
+  contentPage: {
+    paddingTop: 46,
+    paddingBottom: 42,
+    paddingHorizontal: 36,
+    fontFamily: "NotoSansKR",
+    fontSize: 9,
+    color: colors.text,
+    lineHeight: 1.4,
+  },
+  // ── Cover ──
+  coverPage: {
+    paddingTop: 64,
+    paddingBottom: 54,
+    paddingHorizontal: 54,
+    fontFamily: "NotoSansKR",
+    color: colors.text,
+  },
+  brandWordmark: { fontSize: 30, fontWeight: "bold", color: colors.primary, letterSpacing: 1 },
+  brandBy: { fontSize: 10, color: colors.muted, marginTop: 2 },
+  coverRule: { height: 2, width: 64, backgroundColor: colors.primary, marginVertical: 22 },
+  coverTitle: { fontSize: 21, fontWeight: "bold", lineHeight: 1.3 },
+  coverSubtitle: { fontSize: 11, color: colors.muted, marginTop: 4 },
+  coverProduct: { fontSize: 16, fontWeight: "bold", marginTop: 30 },
+  coverMfr: { fontSize: 11, color: colors.muted, marginTop: 2 },
+  coverMetaBox: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12, marginTop: 12 },
+  coverMetaRow: { flexDirection: "row", marginBottom: 4 },
+  coverMetaLabel: { fontSize: 8, color: colors.muted, width: 160 },
+  coverMetaValue: { fontSize: 9, flex: 1 },
+  confidential: { color: colors.fail, fontWeight: "bold", letterSpacing: 1 },
+  // ── Running header / footer ──
+  // Full-width absolute texts (BOTH left+right anchors set, aligned via
+  // textAlign). A right-only anchor produces a bad x-translate that crashes
+  // @react-pdf at render time.
+  runHdrL: { position: "absolute", top: 20, left: 36, right: 36, fontSize: 7, color: colors.muted, textAlign: "left" },
+  runHdrR: { position: "absolute", top: 20, left: 36, right: 36, fontSize: 7, color: colors.muted, textAlign: "right" },
+  runFtrL: { position: "absolute", bottom: 20, left: 36, right: 36, fontSize: 7, color: colors.muted, textAlign: "left" },
+  runFtrR: { position: "absolute", bottom: 20, left: 36, right: 36, fontSize: 7, color: colors.muted, textAlign: "right" },
+  cellCenter: { textAlign: "center" },
 });
 
 function verdictColor(v: IterationStatus | VerdictValue): string {
@@ -535,137 +580,271 @@ function verdictLabel(v: VerdictValue): string {
 
 // ── PDF components ─────────────────────────────────────────────────
 
-export function ReportDocument({ data }: { data: ReportData }) {
-  const { project, applicableStandards, sections, generatedAt } = data;
+function reportNumberOf(data: ReportData): string {
+  const d = data.project.finalizedAt ? new Date(data.project.finalizedAt) : data.generatedAt;
+  const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(
+    d.getDate(),
+  ).padStart(2, "0")}`;
+  return `ZGRC-RED-${data.project.id.slice(0, 6).toUpperCase()}-${ymd}`;
+}
+
+function RunningMarks({ reportNo, productName }: { reportNo: string; productName: string }) {
   return (
-    <Document title={`Report - ${project.name}`} author="Z-GRC">
-      {/* Cover + summary */}
-      <Page size="A4" style={styles.page}>
-        <Text style={styles.h1}>EN 18031 자가 평가 리포트</Text>
-        <Text style={styles.muted}>EN 18031 Self-Assessment Report</Text>
-        <View style={{ marginTop: 12, ...styles.box }}>
-          <View style={styles.kv}>
-            <Text style={styles.kvLabel}>제품</Text>
-            <Text style={styles.kvValue}>{project.name}</Text>
-          </View>
-          <View style={styles.kv}>
-            <Text style={styles.kvLabel}>제조사</Text>
-            <Text style={styles.kvValue}>{project.manufacturer}</Text>
-          </View>
-          {project.productType && (
-            <View style={styles.kv}>
-              <Text style={styles.kvLabel}>제품 유형</Text>
-              <Text style={styles.kvValue}>{project.productType}</Text>
-            </View>
-          )}
-          {project.contactName && (
-            <View style={styles.kv}>
-              <Text style={styles.kvLabel}>담당자</Text>
-              <Text style={styles.kvValue}>
-                {project.contactName}
-                {project.contactEmail ? ` <${project.contactEmail}>` : ""}
-              </Text>
-            </View>
-          )}
-          <View style={styles.kv}>
-            <Text style={styles.kvLabel}>적용 표준</Text>
-            <Text style={styles.kvValue}>
-              {applicableStandards.length === 0
-                ? "없음"
-                : applicableStandards
-                    .map((s) => `EN 18031-${s} (${STANDARDS[s].name_ko})`)
-                    .join(", ")}
-            </Text>
-          </View>
-          {project.finalizedAt && (
-            <View style={styles.kv}>
-              <Text style={styles.kvLabel}>확정</Text>
-              <Text style={[styles.kvValue, { color: colors.pass }]}>
-                {new Date(project.finalizedAt).toLocaleString("ko-KR")}
-                {project.finalizedBy ? ` · ${project.finalizedBy}` : ""}
-              </Text>
-            </View>
-          )}
-          <View style={styles.kv}>
-            <Text style={styles.kvLabel}>생성일</Text>
-            <Text style={styles.kvValue}>{generatedAt.toLocaleString("ko-KR")}</Text>
-          </View>
+    <View
+      fixed
+      style={{
+        flexDirection: "row",
+        justifyContent: "space-between",
+        marginBottom: 10,
+        paddingBottom: 3,
+        borderBottomWidth: 0.5,
+        borderBottomColor: colors.border,
+      }}
+    >
+      <Text style={{ fontSize: 7, color: colors.muted }}>
+        Z-GRC · {reportNo} · {productName}
+      </Text>
+      <Text
+        style={{ fontSize: 7, color: colors.muted }}
+        render={({ pageNumber }) => `CONFIDENTIAL · p.${pageNumber}`}
+      />
+    </View>
+  );
+}
+
+function CoverMetaRow({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <View style={styles.coverMetaRow}>
+      <Text style={styles.coverMetaLabel}>{label}</Text>
+      <Text style={[styles.coverMetaValue, accent ? styles.confidential : {}]}>{value}</Text>
+    </View>
+  );
+}
+
+export function ReportDocument({ data }: { data: ReportData }) {
+  const { project, applicableStandards, sections, assets, generatedAt } = data;
+  const reportNo = reportNumberOf(data);
+  const issueDate = (project.finalizedAt ? new Date(project.finalizedAt) : generatedAt).toLocaleDateString(
+    "ko-KR",
+  );
+  const standardsLine =
+    applicableStandards.length === 0
+      ? "없음 / None"
+      : applicableStandards.map((s) => `EN 18031-${s}`).join(", ");
+
+  return (
+    <Document title={`Report - ${project.name}`} author="Z-GRC by ZIEN">
+      {/* ── Cover ── */}
+      <Page size="A4" style={styles.coverPage}>
+        <View>
+          <Text style={styles.brandWordmark}>Z-GRC</Text>
+          <Text style={styles.brandBy}>by ZIEN</Text>
         </View>
-
-        {project.productDescription && (
-          <View style={styles.box}>
-            <Text style={styles.h3}>제품 설명</Text>
-            <Text>{project.productDescription}</Text>
-          </View>
-        )}
-
-        {/* Per-standard summary */}
-        <Text style={styles.h2}>전체 요약</Text>
-        {applicableStandards.map((s) => (
-          <StandardSummary key={s} standard={s} section={sections[s]} />
-        ))}
+        <View style={{ flexGrow: 1, justifyContent: "center" }}>
+          <View style={styles.coverRule} />
+          <Text style={styles.coverTitle}>EN 18031 사이버보안 평가 보고서</Text>
+          <Text style={styles.coverSubtitle}>EN 18031 Cybersecurity Assessment Report</Text>
+          <Text style={styles.coverProduct}>{project.name}</Text>
+          <Text style={styles.coverMfr}>{project.manufacturer}</Text>
+        </View>
+        <View style={styles.coverMetaBox}>
+          <CoverMetaRow label="보고서 번호 / Report No." value={reportNo} />
+          <CoverMetaRow label="버전 / Version" value="v1.0" />
+          <CoverMetaRow label="적용 표준 / Standards" value={standardsLine} />
+          {project.contactName && (
+            <CoverMetaRow
+              label="담당자 / Contact"
+              value={`${project.contactName}${project.contactEmail ? ` <${project.contactEmail}>` : ""}`}
+            />
+          )}
+          <CoverMetaRow
+            label={project.finalizedAt ? "확정일 / Finalized" : "발행일 / Issued"}
+            value={`${issueDate}${project.finalizedBy ? ` · ${project.finalizedBy}` : ""}`}
+          />
+          <CoverMetaRow label="기밀 / Classification" value="CONFIDENTIAL" accent />
+        </View>
       </Page>
 
-      {/* Per-standard detail pages */}
-      {applicableStandards.map((s) => (
-        <Page key={s} size="A4" style={styles.page}>
+      {/* ── Front matter: overview + scope ── */}
+      <Page size="A4" style={styles.contentPage}>
+        <RunningMarks reportNo={reportNo} productName={project.name} />
+
+        <Text style={styles.h2}>1. 결과 개요 / Results Overview</Text>
+        <SummaryTable applicableStandards={applicableStandards} sections={sections} />
+
+        <View style={{ marginTop: 14 }}>
+          <Text style={styles.h2}>2. 평가 범위 및 방법론 / Scope &amp; Methodology</Text>
+          <ScopeSection project={project} applicableStandards={applicableStandards} assets={assets} />
+        </View>
+      </Page>
+
+      {/* ── Assessment results — one page (auto-paginated) per standard ── */}
+      {applicableStandards.map((s, idx) => (
+        <Page key={s} size="A4" style={styles.contentPage}>
+          <RunningMarks reportNo={reportNo} productName={project.name} />
           <View style={styles.sectionHeader}>
-            <Text style={{ fontSize: 14, fontWeight: "bold" }}>
-              EN 18031-{s} — {STANDARDS[s].name_ko}
+            <Text style={{ fontSize: 13, fontWeight: "bold" }}>
+              3.{idx + 1} {STANDARDS[s].name_ko}
             </Text>
           </View>
-          {sections[s].blocks.map((block) => (
-            <RequirementBlockPdf
-              key={block.req.id}
-              block={block}
-              hideAssessments={data.hideAssessments}
-            />
-          ))}
+          {sections[s].blocks.length === 0 ? (
+            <Text style={styles.muted}>해당 표준에 적용되는 요구사항이 없습니다.</Text>
+          ) : (
+            sections[s].blocks.map((block) => (
+              <RequirementBlockPdf
+                key={block.req.id}
+                block={block}
+                hideAssessments={data.hideAssessments}
+              />
+            ))
+          )}
         </Page>
       ))}
     </Document>
   );
 }
 
-function StandardSummary({
-  standard,
-  section,
+function SummaryTable({
+  applicableStandards,
+  sections,
 }: {
-  standard: StandardId;
-  section: StandardSection;
+  applicableStandards: StandardId[];
+  sections: Record<number, StandardSection>;
 }) {
-  const { stats } = section;
-  const resolved = stats.pass + stats.fail + stats.na;
-  const pct = stats.total === 0 ? 0 : Math.round((resolved / stats.total) * 100);
+  const totals = { total: 0, pass: 0, fail: 0, na: 0, pending: 0 };
+  for (const s of applicableStandards) {
+    const st = sections[s].stats;
+    totals.total += st.total;
+    totals.pass += st.pass;
+    totals.fail += st.fail;
+    totals.na += st.na;
+    totals.pending += st.pending;
+  }
+
+  const Cell = ({ children, flex, color }: { children: number; flex: number; color?: string }) => (
+    <Text style={[styles.tableCell, styles.cellCenter, { flex, ...(color ? { color } : {}) }]}>
+      {children}
+    </Text>
+  );
 
   return (
-    <View style={[styles.box, { padding: 10 }]}>
-      <Text style={styles.h3}>
-        EN 18031-{standard} ({STANDARDS[standard].name_ko}) · 완료율 {pct}%
+    <View>
+      <View style={styles.table}>
+        <View style={[styles.tableRow, styles.tableHeader]}>
+          <Text style={[styles.tableCell, { flex: 4 }]}>표준 / Standard</Text>
+          <Text style={[styles.tableCell, styles.cellCenter, { flex: 1 }]}>전체</Text>
+          <Text style={[styles.tableCell, styles.cellCenter, { flex: 1 }]}>PASS</Text>
+          <Text style={[styles.tableCell, styles.cellCenter, { flex: 1 }]}>FAIL</Text>
+          <Text style={[styles.tableCell, styles.cellCenter, { flex: 1 }]}>N/A</Text>
+          <Text style={[styles.tableCell, styles.cellCenter, { flex: 1 }]}>진행</Text>
+        </View>
+        {applicableStandards.map((s, i) => {
+          const st = sections[s].stats;
+          const last = i === applicableStandards.length - 1;
+          return (
+            <View key={s} style={last ? styles.tableRowLast : styles.tableRow}>
+              <Text style={[styles.tableCell, { flex: 4 }]}>
+                {STANDARDS[s].name_ko}
+              </Text>
+              <Cell flex={1}>{st.total}</Cell>
+              <Cell flex={1} color={colors.pass}>{st.pass}</Cell>
+              <Cell flex={1} color={colors.fail}>{st.fail}</Cell>
+              <Cell flex={1} color={colors.na}>{st.na}</Cell>
+              <Cell flex={1} color={colors.pending}>{st.pending}</Cell>
+            </View>
+          );
+        })}
+      </View>
+      {/* Totals row (separate, emphasized) */}
+      <View style={[styles.tableRowLast, { backgroundColor: colors.bg, marginTop: 4, borderWidth: 0.5, borderColor: colors.border, borderRadius: 3 }]}>
+        <Text style={[styles.tableCell, { flex: 4, fontWeight: "bold" }]}>합계 / Total</Text>
+        <Text style={[styles.tableCell, styles.cellCenter, { flex: 1, fontWeight: "bold" }]}>{totals.total}</Text>
+        <Text style={[styles.tableCell, styles.cellCenter, { flex: 1, fontWeight: "bold", color: colors.pass }]}>{totals.pass}</Text>
+        <Text style={[styles.tableCell, styles.cellCenter, { flex: 1, fontWeight: "bold", color: colors.fail }]}>{totals.fail}</Text>
+        <Text style={[styles.tableCell, styles.cellCenter, { flex: 1, fontWeight: "bold", color: colors.na }]}>{totals.na}</Text>
+        <Text style={[styles.tableCell, styles.cellCenter, { flex: 1, fontWeight: "bold", color: colors.pending }]}>{totals.pending}</Text>
+      </View>
+      <Text style={[styles.muted, { marginTop: 6 }]}>
+        총 {totals.total}개 평가 단위 · FAIL {totals.fail}건 · 진행중 {totals.pending}건
       </Text>
-      <View style={[styles.row, { marginTop: 6 }]}>
-        <View style={[styles.statBox, { backgroundColor: "#f3f4f6" }]}>
-          <Text style={styles.statCount}>{stats.total}</Text>
-          <Text style={styles.statLabel}>전체</Text>
+    </View>
+  );
+}
+
+function ScopeSection({
+  project,
+  applicableStandards,
+  assets,
+}: {
+  project: ReportData["project"];
+  applicableStandards: StandardId[];
+  assets: ReportData["assets"];
+}) {
+  return (
+    <View>
+      {/* Product overview */}
+      <View style={styles.box}>
+        <Text style={styles.h3}>제품 개요 / Product</Text>
+        <View style={styles.kv}>
+          <Text style={styles.kvLabel}>제품 / Product</Text>
+          <Text style={styles.kvValue}>{project.name}</Text>
         </View>
-        <View style={[styles.statBox, { backgroundColor: "#d1fae5" }]}>
-          <Text style={[styles.statCount, { color: colors.pass }]}>{stats.pass}</Text>
-          <Text style={styles.statLabel}>PASS</Text>
+        <View style={styles.kv}>
+          <Text style={styles.kvLabel}>제조사 / Manufacturer</Text>
+          <Text style={styles.kvValue}>{project.manufacturer}</Text>
         </View>
-        <View style={[styles.statBox, { backgroundColor: "#fee2e2" }]}>
-          <Text style={[styles.statCount, { color: colors.fail }]}>{stats.fail}</Text>
-          <Text style={styles.statLabel}>FAIL</Text>
-        </View>
-        <View style={[styles.statBox, { backgroundColor: "#e5e7eb" }]}>
-          <Text style={[styles.statCount, { color: colors.na }]}>{stats.na}</Text>
-          <Text style={styles.statLabel}>N/A</Text>
-        </View>
-        <View style={[styles.statBox, { backgroundColor: "#fef3c7" }]}>
-          <Text style={[styles.statCount, { color: colors.pending }]}>
-            {stats.pending}
-          </Text>
-          <Text style={styles.statLabel}>진행중</Text>
-        </View>
+        {project.productType && (
+          <View style={styles.kv}>
+            <Text style={styles.kvLabel}>유형 / Type</Text>
+            <Text style={styles.kvValue}>{project.productType}</Text>
+          </View>
+        )}
+        {project.productDescription && (
+          <View style={{ marginTop: 4 }}>
+            <Text style={[styles.muted, { fontSize: 7 }]}>설명 / Description</Text>
+            <Text style={{ fontSize: 8 }}>{project.productDescription}</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Applicable standards */}
+      <View style={styles.box}>
+        <Text style={styles.h3}>적용 표준 / Applicable Standards</Text>
+        {applicableStandards.length === 0 ? (
+          <Text style={styles.muted}>해당되는 EN 18031 표준이 없습니다. / None.</Text>
+        ) : (
+          applicableStandards.map((s) => (
+            <Text key={s} style={{ fontSize: 8, marginBottom: 1 }}>
+              • {STANDARDS[s].name_ko}
+              {STANDARDS[s].article ? ` (${STANDARDS[s].article})` : ""}
+            </Text>
+          ))
+        )}
+      </View>
+
+      {/* Methodology */}
+      <View style={styles.box}>
+        <Text style={styles.h3}>평가 방법 / Methodology</Text>
+        <Text style={{ fontSize: 8 }}>
+          본 평가는 EN 18031의 요구사항별 Decision Tree 평가와 기능 평가(테스트 방법·결과·판정)를 통해 수행되었습니다.
+        </Text>
+        <Text style={[styles.muted, { fontSize: 7, marginTop: 2 }]}>
+          This assessment was conducted through EN 18031 per-requirement decision-tree evaluation and functional assessment (test method, result, verdict).
+        </Text>
+      </View>
+
+      {/* Assets in scope */}
+      <View style={styles.box}>
+        <Text style={styles.h3}>대상 자산 / Assets in Scope ({assets.length})</Text>
+        {assets.length === 0 ? (
+          <Text style={styles.muted}>등록된 자산이 없습니다. / None.</Text>
+        ) : (
+          assets.map((a) => (
+            <Text key={a.id} style={{ fontSize: 8, marginBottom: 1 }}>
+              • {a.name} — {kindConfig(a.kind)?.title_ko ?? a.kind}
+            </Text>
+          ))
+        )}
       </View>
     </View>
   );
@@ -679,7 +858,7 @@ function RequirementBlockPdf({
   hideAssessments: boolean;
 }) {
   return (
-    <View style={styles.reqCard} wrap={false}>
+    <View style={styles.reqCard}>
       <View style={[styles.row, { marginBottom: 4, alignItems: "center" }]}>
         <Text
           style={{
