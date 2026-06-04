@@ -28,6 +28,7 @@ import {
 } from "@/app/ai-pipeline-actions";
 import { AI_DONE_TRANSITION, notificationCopy, type GatedAiStage } from "@/lib/workflow";
 import { notify } from "@/lib/notifications";
+import { isAiMock, mockAssets, mockDt, mockAssessment } from "./mock-fill";
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -75,6 +76,11 @@ async function ensureFirmware(runId: string, projectId: string) {
 
 // Stage: assets — clear prior AI assets, then identify from firmware/documents.
 async function runAssetsSegment(runId: string, projectId: string) {
+  if (isAiMock()) {
+    await setStep(runId, "assets", 1, "[테스트] 가상 자산 생성 중…");
+    await safe(runId, "mock-assets", () => mockAssets(projectId));
+    return;
+  }
   await setStep(runId, "assets", 1, "이전 AI 자산 정리 후 식별 중…");
   await safe(runId, "reset", () => resetAiGeneratedAssets(projectId));
   await safe(runId, "assets", () => aiFillAssets(projectId));
@@ -83,6 +89,11 @@ async function runAssetsSegment(runId: string, projectId: string) {
 // Stage: dt — DT instances + one bundled call per requirement, then evidence,
 // then a remediation plan for every requirement×asset that evaluated to FAIL.
 async function runDtSegment(runId: string, projectId: string) {
+  if (isAiMock()) {
+    await setStep(runId, "dt", 1, "[테스트] 가상 DT·조치방안 생성 중…");
+    await safe(runId, "mock-dt", () => mockDt(projectId));
+    return;
+  }
   await setStep(runId, "dt", 1, "Decision Tree 준비 중 (인스턴스 생성)…");
   let reqIds: string[] = [];
   try {
@@ -113,6 +124,11 @@ async function runDtSegment(runId: string, projectId: string) {
 // Stage: assessment — AI fills the testMethod only; the consultant fills the
 // test result + verdict by hand.
 async function runAssessmentSegment(runId: string, projectId: string) {
+  if (isAiMock()) {
+    await setStep(runId, "assessment", 1, "[테스트] 가상 테스트 방법 생성 중…");
+    await safe(runId, "mock-assessment", () => mockAssessment(projectId));
+    return;
+  }
   await setStep(runId, "assessment", 1, "기능 평가 테스트 방법 작성 중…");
   await safe(runId, "assessment", () => aiFillAssessmentFirmware(projectId));
 }
@@ -130,7 +146,8 @@ export async function runPipeline(runId: string): Promise<void> {
 
   await bgAuth.run({ projectId }, async () => {
     try {
-      await ensureFirmware(runId, projectId);
+      // Mock mode skips the heavy binwalk firmware analysis entirely.
+      if (!isAiMock()) await ensureFirmware(runId, projectId);
       if (stage === "full" || stage === "assets") await runAssetsSegment(runId, projectId);
       if (stage === "full" || stage === "dt") await runDtSegment(runId, projectId);
       if (stage === "full" || stage === "assessment") await runAssessmentSegment(runId, projectId);

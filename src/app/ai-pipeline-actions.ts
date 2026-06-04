@@ -11,6 +11,7 @@ import { prisma } from "@/lib/prisma";
 import { requireProjectAccess } from "@/lib/auth";
 import { isBackgroundAuthorized } from "@/lib/ai/bg-context";
 import { runFirmwareAnalysis } from "@/lib/ai/firmware";
+import { isAiMock } from "@/lib/ai/mock-fill";
 import {
   GROUNDING_INSTRUCTION,
   definitionsBlock,
@@ -109,10 +110,13 @@ export async function startAiPipeline(
   stage: AiStage = "full",
 ): Promise<AiRunStatus> {
   await assertEditable(projectId);
-  const fwCount = await prisma.projectAttachment.count({
-    where: { projectId, kind: "firmware" },
-  });
-  if (fwCount === 0) throw new Error("펌웨어 첨부가 없습니다. 프로젝트 등록 시 펌웨어를 첨부하세요.");
+  // Mock mode doesn't need firmware (it inserts placeholder data instead).
+  if (!isAiMock()) {
+    const fwCount = await prisma.projectAttachment.count({
+      where: { projectId, kind: "firmware" },
+    });
+    if (fwCount === 0) throw new Error("펌웨어 첨부가 없습니다. 프로젝트 등록 시 펌웨어를 첨부하세요.");
+  }
 
   const inflight = await prisma.aiPipelineRun.findFirst({
     where: { projectId, status: { in: ["queued", "running"] } },
@@ -496,6 +500,14 @@ export async function aiFillAssessmentFirmware(
   projectId: string,
 ): Promise<{ reqsProcessed: number; totalSaved: number; errors: string[] }> {
   await assertEditable(projectId);
+
+  // Mock mode: insert placeholder testMethods instead of calling the API.
+  if (isAiMock()) {
+    const { mockAssessment } = await import("@/lib/ai/mock-fill");
+    await mockAssessment(projectId);
+    revalidatePath(`/projects/${projectId}/assessment`, "layout");
+    return { reqsProcessed: 0, totalSaved: 0, errors: [] };
+  }
 
   const project = await prisma.project.findUnique({
     where: { id: projectId },
