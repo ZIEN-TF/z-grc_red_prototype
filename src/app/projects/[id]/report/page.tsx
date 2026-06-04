@@ -203,6 +203,25 @@ export default async function ReportPage({
     });
   }
 
+  // Report identity (mirrors the PDF) and a flat, deduped asset list for the
+  // scope section.
+  const reportDate = project.finalizedAt ? new Date(project.finalizedAt) : new Date();
+  const reportNo = `ZGRC-RED-${project.id.slice(0, 6).toUpperCase()}-${reportDate.getFullYear()}${String(
+    reportDate.getMonth() + 1,
+  ).padStart(2, "0")}${String(reportDate.getDate()).padStart(2, "0")}`;
+  const scopeAssets = Array.from(
+    new Map(
+      applicableStandards.flatMap((s) => sections[s].assets).map((a) => [a.id, a]),
+    ).values(),
+  );
+  const scope = {
+    name: project.name,
+    manufacturer: project.manufacturer,
+    productType: project.productType,
+    productDescription: project.productDescription,
+    assets: scopeAssets,
+  };
+
   return (
     <div className="mx-auto max-w-5xl space-y-6 print:max-w-none">
       <div className="flex flex-wrap items-start justify-between gap-3 print:hidden">
@@ -219,6 +238,10 @@ export default async function ReportPage({
               / Final Report
             </span>
           </h1>
+          <p className="mt-1 font-mono text-xs text-muted-foreground">
+            {reportNo} · v1.0 ·{" "}
+            <span className="font-semibold text-destructive">CONFIDENTIAL</span>
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <DownloadPdfButton projectId={project.id} />
@@ -294,6 +317,7 @@ export default async function ReportPage({
             project={project}
             applicable={applicableStandards}
             sections={sections}
+            scope={scope}
           />
         ) : (
           <StandardTab
@@ -310,6 +334,7 @@ export default async function ReportPage({
           project={project}
           applicable={applicableStandards}
           sections={sections}
+          scope={scope}
         />
         {applicableStandards.map((s) => (
           <div key={s} className="break-before-page">
@@ -444,10 +469,19 @@ function ProjectHeaderCard({
   );
 }
 
+type ScopeData = {
+  name: string;
+  manufacturer: string;
+  productType: string | null;
+  productDescription: string | null;
+  assets: Array<{ id: string; name: string; kind: string; description: string | null }>;
+};
+
 function SummaryTab({
   project,
   applicable,
   sections,
+  scope,
 }: {
   project: {
     id: string;
@@ -460,6 +494,7 @@ function SummaryTab({
   };
   applicable: StandardId[];
   sections: Record<number, StandardSection>;
+  scope: ScopeData;
 }) {
   return (
     <div className="space-y-6">
@@ -474,6 +509,8 @@ function SummaryTab({
           <StandardSummaryCard key={s} standard={s} section={sections[s]} />
         ))
       )}
+
+      <ScopeCard scope={scope} applicable={applicable} />
 
       <Card>
         <CardHeader className="pb-3">
@@ -561,6 +598,72 @@ function SummaryTab({
         </details>
       )}
     </div>
+  );
+}
+
+function ScopeCard({
+  scope,
+  applicable,
+}: {
+  scope: ScopeData;
+  applicable: StandardId[];
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">
+          평가 범위 및 방법론{" "}
+          <span className="text-sm font-medium text-muted-foreground">
+            / Scope &amp; Methodology
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4 text-sm">
+        <div>
+          <p className="text-xs font-medium text-muted-foreground">
+            평가 방법 / Methodology
+          </p>
+          <p className="mt-0.5">
+            본 평가는 EN 18031의 요구사항별 Decision Tree 평가와 기능 평가(테스트
+            방법·결과·판정)를 통해 수행되었습니다.
+          </p>
+        </div>
+        <div>
+          <p className="text-xs font-medium text-muted-foreground">
+            적용 표준 / Applicable Standards
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {applicable.map((s) => (
+              <li key={s}>
+                · {STANDARDS[s].name_ko}
+                {STANDARDS[s].article ? ` (${STANDARDS[s].article})` : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <p className="text-xs font-medium text-muted-foreground">
+            대상 자산 / Assets in Scope ({scope.assets.length})
+          </p>
+          {scope.assets.length === 0 ? (
+            <p className="mt-1 text-sm text-muted-foreground">
+              등록된 자산이 없습니다.
+            </p>
+          ) : (
+            <ul className="mt-1 grid gap-0.5 sm:grid-cols-2">
+              {scope.assets.map((a) => (
+                <li key={a.id}>
+                  · {a.name}{" "}
+                  <span className="text-xs text-muted-foreground">
+                    — {kindConfig(a.kind)?.title_ko ?? a.kind}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
