@@ -126,7 +126,8 @@ export default async function EvidencePage({
   for (const ev of project.dtEvidences) {
     const key = `${ev.requirementId}::${ev.assetId ?? "__global__"}::${ev.fieldId}`;
     evidenceValueMap.set(key, ev.value);
-    evidenceAiMap.set(key, ev.aiGenerated && !ev.userReviewed);
+    // Customers never see the AI-authored marking on a field.
+    evidenceAiMap.set(key, isConsultant && ev.aiGenerated && !ev.userReviewed);
   }
 
   const aiEvidenceIds = project.dtEvidences
@@ -335,20 +336,24 @@ export default async function EvidencePage({
         finalizedBy={project.finalizedBy}
       />
 
-      <div className="flex justify-end">
-        <AIFillEvidenceButton
-          projectId={project.id}
-          hasAttachments={project.attachments.length > 0}
-          hasReviewedFields={project.dtEvidences.some((e) => e.userReviewed)}
-          disabled={project.finalizedAt !== null}
-        />
-      </div>
+      {isConsultant && (
+        <div className="flex justify-end">
+          <AIFillEvidenceButton
+            projectId={project.id}
+            hasAttachments={project.attachments.length > 0}
+            hasReviewedFields={project.dtEvidences.some((e) => e.userReviewed)}
+            disabled={project.finalizedAt !== null}
+          />
+        </div>
+      )}
 
-      <EvidenceAIReviewBanner
-        projectId={project.id}
-        count={aiEvidenceIds.length}
-        evidenceIds={aiEvidenceIds}
-      />
+      {isConsultant && (
+        <EvidenceAIReviewBanner
+          projectId={project.id}
+          count={aiEvidenceIds.length}
+          evidenceIds={aiEvidenceIds}
+        />
+      )}
 
       {applicableStandards.length > 1 && (
         <div className="flex flex-wrap gap-1 border-b">

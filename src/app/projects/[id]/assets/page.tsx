@@ -2,15 +2,14 @@ import Link from "next/link";
 import { ArrowLeft, ArrowRight, Info } from "lucide-react";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { requireSession } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import {
   ASSET_ONLY_KINDS,
   applicableAssetKinds,
@@ -28,6 +27,8 @@ export default async function AssetsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const session = await requireSession();
+  const isConsultant = session.role === "consultant";
   const project = await prisma.project.findUnique({
     where: { id },
     include: {
@@ -84,24 +85,30 @@ export default async function AssetsPage({
         finalizedBy={project.finalizedBy}
       />
 
+      {/* AI fill + AI-review are consultant-only — the customer just reviews and
+          confirms the asset list (never told it was AI-authored). */}
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <AIFillAssetsButton
-          projectId={project.id}
-          hasAttachments={project.attachments.length > 0}
-          hasExisting={project.assets.length > 0}
-          disabled={project.finalizedAt !== null}
-        />
+        {isConsultant && (
+          <AIFillAssetsButton
+            projectId={project.id}
+            hasAttachments={project.attachments.length > 0}
+            hasExisting={project.assets.length > 0}
+            disabled={project.finalizedAt !== null}
+          />
+        )}
         <CSVImportDialog
           projectId={project.id}
           disabled={project.finalizedAt !== null}
         />
       </div>
 
-      <AssetsAIReviewBanner
-        projectId={project.id}
-        count={aiGeneratedIds.length}
-        assetIds={aiGeneratedIds}
-      />
+      {isConsultant && (
+        <AssetsAIReviewBanner
+          projectId={project.id}
+          count={aiGeneratedIds.length}
+          assetIds={aiGeneratedIds}
+        />
+      )}
 
       <Card className="border-accent bg-accent/30">
         <CardHeader className="pb-3">
@@ -153,7 +160,7 @@ export default async function AssetsPage({
                 metadata: safeJson(a.metadata),
                 createdAt: a.createdAt.toISOString(),
               }))}
-            aiGeneratedIds={aiGeneratedIds}
+            aiGeneratedIds={isConsultant ? aiGeneratedIds : []}
           />
         </div>
       ))}

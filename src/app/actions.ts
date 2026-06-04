@@ -715,7 +715,10 @@ export async function saveScreening(
 
   revalidatePath(`/projects/${projectId}`);
   revalidatePath("/");
-  redirect(`/projects/${projectId}/result`);
+  // After screening, the customer returns to the home list where the project's
+  // workflow status ("자산 준비 중" → "자산 확인 필요") is shown — rather than
+  // waiting on the result page.
+  redirect("/");
 }
 
 // ── Finalize / Unlock ─────────────────────────────────────────────

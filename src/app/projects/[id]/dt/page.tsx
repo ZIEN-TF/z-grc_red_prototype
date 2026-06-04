@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { requireSession } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -43,6 +44,8 @@ export default async function DTOverviewPage({
 }) {
   const { id } = await params;
   const { standard: standardParam } = await searchParams;
+  const session = await requireSession();
+  const isConsultant = session.role === "consultant";
 
   const project = await prisma.project.findUnique({
     where: { id },
@@ -327,12 +330,14 @@ export default async function DTOverviewPage({
               {project.manufacturer}
             </p>
           </div>
-          <AIFillDTAllButton
-            projectId={project.id}
-            hasAttachments={project.attachments.length > 0}
-            hasReviewedAnswers={reviewedDTCount}
-            disabled={project.finalizedAt !== null}
-          />
+          {isConsultant && (
+            <AIFillDTAllButton
+              projectId={project.id}
+              hasAttachments={project.attachments.length > 0}
+              hasReviewedAnswers={reviewedDTCount}
+              disabled={project.finalizedAt !== null}
+            />
+          )}
         </div>
       </div>
 
@@ -436,7 +441,7 @@ export default async function DTOverviewPage({
           projectId={project.id}
           selectedStandard={selectedStandard}
           mechanismsWithoutDTs={mechanismsWithoutDTs}
-          aiGeneratedReqIds={aiGeneratedReqIds}
+          aiGeneratedReqIds={isConsultant ? aiGeneratedReqIds : []}
         />
       )}
 

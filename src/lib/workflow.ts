@@ -148,6 +148,55 @@ export const AI_DONE_TRANSITION: Record<
   assessment: { from: "ASSESSMENT_RUNNING", next: "ASSESSMENT", notify: "consultant", notifyType: "ASSESSMENT_READY" },
 };
 
+// Role-aware project status for the home project list. Customer-facing copy
+// never mentions AI (a "running" stage reads as "준비 중"). `isMyTurn` drives
+// the highlight + top-sort; `ctaPath` is the suffix after /projects/{id}.
+export type ProjectStatus = {
+  label: string; // badge text
+  detail: string; // line under the progress bar
+  isMyTurn: boolean; // needs this role's action now
+  tone: "default" | "secondary" | "outline" | "success" | "warn";
+  ctaPath: string; // "" = overview, "/assets", "/remediation", "/report", …
+  ctaLabel: string;
+};
+
+export function projectStatusFor(phaseRaw: string, role: WorkflowRole): ProjectStatus {
+  const phase = (PHASE_ORDER.includes(phaseRaw as Phase) ? phaseRaw : "INTAKE") as Phase;
+  const isMyTurn = PHASE_ACTOR[phase] === role;
+  const tone: ProjectStatus["tone"] =
+    phase === "DONE" ? "success" : isMyTurn ? "warn" : "secondary";
+
+  // [label, detail, ctaPath, ctaLabel] per phase, per role.
+  const C: Record<Phase, [string, string, string, string]> = {
+    INTAKE: ["기초 정보 입력 중", "첨부파일과 스크리닝을 완료해 주세요.", "/screening", "스크리닝 진행"],
+    ASSETS_RUNNING: ["자산 준비 중", "자산 목록을 준비하고 있습니다.", "", "현황 보기"],
+    ASSETS_CUSTOMER: ["자산 확인 필요", "자산 목록을 확인하고 확정해 주세요.", "/assets", "자산 확인하기"],
+    ASSETS_CONSULTANT: ["컨설턴트 검토 중", "컨설턴트 검토를 기다리고 있습니다.", "", "현황 보기"],
+    DT_RUNNING: ["평가 준비 중", "평가 자료를 준비하고 있습니다.", "", "현황 보기"],
+    DT_CUSTOMER: ["평가·조치 확인 필요", "평가 결과와 조치 방안을 확인해 주세요.", "/remediation", "확인하기"],
+    DT_CONSULTANT: ["컨설턴트 검토 중", "컨설턴트 검토를 기다리고 있습니다.", "", "현황 보기"],
+    ASSESSMENT_RUNNING: ["평가 준비 중", "최종 평가를 준비하고 있습니다.", "", "현황 보기"],
+    ASSESSMENT: ["컨설턴트 평가 중", "컨설턴트가 기능 평가를 진행 중입니다.", "", "현황 보기"],
+    REPORT_CUSTOMER: ["최종 리포트 확인 필요", "최종 리포트를 확인해 주세요.", "/report", "리포트 확인"],
+    DONE: ["완료", "프로젝트가 완료되었습니다.", "/report", "리포트 보기"],
+  };
+  const K: Record<Phase, [string, string, string, string]> = {
+    INTAKE: ["고객 입력 대기", "고객이 기초 정보를 입력하고 있습니다.", "", "현황 보기"],
+    ASSETS_RUNNING: ["자산 분석 중", "AI가 자산을 분석하고 있습니다.", "/result", "현황 보기"],
+    ASSETS_CUSTOMER: ["고객 자산 확인 대기", "고객의 자산 확인을 기다리고 있습니다.", "", "현황 보기"],
+    ASSETS_CONSULTANT: ["자산 검토 필요", "자산 목록을 검토하고 승인해 주세요.", "/assets", "자산 검토"],
+    DT_RUNNING: ["DT 분석 중", "AI가 DT·증빙을 분석하고 있습니다.", "/result", "현황 보기"],
+    DT_CUSTOMER: ["고객 확인 대기", "고객의 확인을 기다리고 있습니다.", "", "현황 보기"],
+    DT_CONSULTANT: ["DT 검토 필요", "DT 평가를 검토하고 승인해 주세요.", "/dt", "DT 검토"],
+    ASSESSMENT_RUNNING: ["기능평가 준비 중", "AI가 평가 방법을 준비하고 있습니다.", "/result", "현황 보기"],
+    ASSESSMENT: ["기능평가 수행 필요", "기능 평가를 수행하고 리포트를 확정해 주세요.", "/assessment", "기능평가 수행"],
+    REPORT_CUSTOMER: ["고객 최종 확인 대기", "고객의 최종 확인을 기다리고 있습니다.", "/report", "현황 보기"],
+    DONE: ["완료", "프로젝트가 완료되었습니다.", "/report", "리포트 보기"],
+  };
+  const [label, detail, ctaPath, ctaLabel] = (role === "consultant" ? K : C)[phase];
+  return { label, detail, isMyTurn, tone, ctaPath, ctaLabel };
+}
+
 // Notification copy (Korean). NOTE: never reveals that content is AI-authored —
 // to a customer the work always reads as "검토 자료가 준비되었습니다".
 export function notificationCopy(type: string, projectName: string): { title: string; body: string } {

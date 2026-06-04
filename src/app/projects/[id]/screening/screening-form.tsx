@@ -40,11 +40,14 @@ export function ScreeningForm({
   questions,
   initialAnswers,
   readOnly = false,
+  canUseAi = false,
 }: {
   projectId: string;
   questions: ScreeningQuestion[];
   initialAnswers: ScreeningAnswerMap;
   readOnly?: boolean;
+  // AI auto-fill is consultant-only; customers never see AI controls.
+  canUseAi?: boolean;
 }) {
   const [answers, setAnswers] = useState<ScreeningAnswerMap>(initialAnswers);
   const [pending, startTransition] = useTransition();
@@ -123,7 +126,7 @@ export function ScreeningForm({
           </span>
           <div className="flex items-center gap-2">
             <span className="font-medium">{percent}%</span>
-            {!readOnly && aiFilledIds.size > 0 && (
+            {!readOnly && canUseAi && aiFilledIds.size > 0 && (
               <Button
                 type="button"
                 size="sm"
@@ -135,7 +138,7 @@ export function ScreeningForm({
                 전체 검수 완료 ({aiFilledIds.size})
               </Button>
             )}
-            {!readOnly && (
+            {!readOnly && canUseAi && (
               <Button
                 type="button"
                 size="sm"

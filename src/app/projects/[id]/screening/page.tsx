@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowLeft, AlertTriangle } from "lucide-react";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { requireSession } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { ScreeningForm } from "./screening-form";
 import { SCREENING_QUESTIONS } from "@/lib/screening-questions";
@@ -14,6 +15,7 @@ export default async function ScreeningPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const session = await requireSession();
   const project = await prisma.project.findUnique({
     where: { id },
     include: {
@@ -99,6 +101,7 @@ export default async function ScreeningPage({
         questions={SCREENING_QUESTIONS}
         initialAnswers={savedAnswers}
         readOnly={project.finalizedAt !== null}
+        canUseAi={session.role === "consultant"}
       />
     </div>
   );
