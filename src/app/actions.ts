@@ -689,6 +689,30 @@ export async function saveScreening(
     });
   });
 
+  // First-time screening submit kicks off the collaboration workflow: move to
+  // the asset-analysis stage and start the AI assets fill. If there's no
+  // firmware yet (or the AI can't start), keep the project at INTAKE so the
+  // customer can attach firmware and retry.
+  const cur = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { phase: true },
+  });
+  if (cur?.phase === "INTAKE") {
+    try {
+      await prisma.project.update({
+        where: { id: projectId },
+        data: { phase: "ASSETS_RUNNING", phaseUpdatedAt: new Date() },
+      });
+      const { startAiPipeline } = await import("@/app/ai-pipeline-actions");
+      await startAiPipeline(projectId, "assets");
+    } catch {
+      await prisma.project.update({
+        where: { id: projectId },
+        data: { phase: "INTAKE" },
+      });
+    }
+  }
+
   revalidatePath(`/projects/${projectId}`);
   revalidatePath("/");
   redirect(`/projects/${projectId}/result`);
@@ -709,6 +733,31 @@ export async function finalizeProject(input: {
       finalizedNote: input.note?.trim() || null,
     },
   });
+
+  // Finalizing while performing the assessment completes the consultant's turn:
+  // hand off to the customer for the final report confirmation.
+  const proj = await prisma.project.findUnique({
+    where: { id: input.projectId },
+    select: { phase: true, name: true },
+  });
+  if (proj?.phase === "ASSESSMENT") {
+    await prisma.project.update({
+      where: { id: input.projectId },
+      data: { phase: "REPORT_CUSTOMER", phaseUpdatedAt: new Date() },
+    });
+    const { notify } = await import("@/lib/notifications");
+    const { notificationCopy } = await import("@/lib/workflow");
+    const copy = notificationCopy("REPORT_FINALIZED", proj.name);
+    await notify({
+      projectId: input.projectId,
+      to: "customer",
+      type: "REPORT_FINALIZED",
+      title: copy.title,
+      body: copy.body,
+      linkPath: `/projects/${input.projectId}/report`,
+    });
+  }
+
   revalidatePath(`/projects/${input.projectId}`);
   revalidatePath(`/projects/${input.projectId}/report`);
   revalidatePath("/");
@@ -716,12 +765,21 @@ export async function finalizeProject(input: {
 
 export async function unlockProject(projectId: string) {
   await requireConsultant();
+  const cur = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { phase: true },
+  });
   await prisma.project.update({
     where: { id: projectId },
     data: {
       finalizedAt: null,
       finalizedBy: null,
       finalizedNote: null,
+      // Reopening a finalized report returns the consultant to the assessment
+      // stage so they can revise before re-finalizing.
+      ...(cur?.phase === "REPORT_CUSTOMER" || cur?.phase === "DONE"
+        ? { phase: "ASSESSMENT" as const, phaseUpdatedAt: new Date() }
+        : {}),
     },
   });
   revalidatePath(`/projects/${projectId}`);

@@ -20,6 +20,7 @@ model User {
 
   projects            Project[]
   passwordResetTokens PasswordResetToken[]
+  notifications       Notification[]
 }
 
 model PasswordResetToken {
@@ -59,6 +60,14 @@ model Project {
 
   screeningComplete Boolean @default(false)
 
+  // Collaboration workflow stage. Drives whose turn it is (customer vs
+  // consultant) and which AI fill runs next. Values (see src/lib/workflow.ts):
+  //   INTAKE → ASSETS_RUNNING → ASSETS_CUSTOMER → ASSETS_CONSULTANT →
+  //   DT_RUNNING → DT_CUSTOMER → DT_CONSULTANT →
+  //   ASSESSMENT_RUNNING → ASSESSMENT → REPORT_CUSTOMER → DONE
+  phase          String   @default("INTAKE")
+  phaseUpdatedAt DateTime @default(now())
+
   // Finalization — once finalized, mutations are locked. Set back to null to unlock.
   finalizedAt   DateTime?
   finalizedBy   String?
@@ -76,6 +85,8 @@ model Project {
   shareTokens      ShareToken[]
   firmwareAnalyses FirmwareAnalysis[]
   aiPipelineRuns   AiPipelineRun[]
+  dtRemediations   DTRemediation[]
+  notifications    Notification[]
 }
 
 // Result of the one-time heavy firmware analysis (binwalk extraction + agentic
@@ -105,6 +116,7 @@ model FirmwareAnalysis {
 model AiPipelineRun {
   id         String    @id @default(cuid())
   projectId  String
+  stage      String    @default("full") // full|assets|dt|assessment — which flow segment this run covers
   status     String    @default("queued") // queued|running|done|failed|canceled
   step       String    @default("") // firmware|assets|dt|evidence|assessment
   total      Int       @default(0) // total work units for the current step
@@ -169,10 +181,11 @@ model Asset {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  project       Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  dtAnswers     DTAnswer[]
-  dtEvidences   DTEvidence[]
-  dtAssessments DTAssessment[]
+  project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  dtAnswers      DTAnswer[]
+  dtEvidences    DTEvidence[]
+  dtAssessments  DTAssessment[]
+  dtRemediations DTRemediation[]
 }
 
 model DTAnswer {
@@ -279,4 +292,54 @@ model ProjectAttachment {
   createdAt DateTime @default(now())
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+// Remediation guidance for a DT requirement that evaluated to FAIL, plus the
+// customer's response on whether the corrective action was taken. One row per
+// (project, asset, requirement). `remediationText` is AI-authored (Korean);
+// `actionStatus`/`customerNote` are filled by the customer during their DT
+// confirmation step.
+model DTRemediation {
+  id            String  @id @default(cuid())
+  projectId     String
+  assetId       String? // null for global-scope (non per-asset) requirements
+  requirementId String
+
+  remediationText String    @default("") // AI 조치 방안 (한국어)
+  aiGenerated     Boolean   @default(false)
+  aiGeneratedAt   DateTime?
+
+  // Customer response.
+  actionStatus String    @default("pending") // "pending" | "done" | "in_progress" | "not_done"
+  customerNote String    @default("")
+  respondedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  asset   Asset?  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, assetId, requirementId])
+}
+
+// In-app notification. Fanned out to one row per recipient user (so unread
+// state is per-user even for "all consultants" events). `type` identifies the
+// workflow event; `linkPath` is where clicking the notification navigates.
+model Notification {
+  id              String    @id @default(cuid())
+  projectId       String
+  recipientUserId String
+  type            String // "ASSETS_READY" | "ASSETS_CUSTOMER_CONFIRMED" | ...
+  title           String
+  body            String    @default("")
+  linkPath        String?
+  readAt          DateTime?
+  createdAt       DateTime  @default(now())
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  recipient User    @relation(fields: [recipientUserId], references: [id], onDelete: Cascade)
+
+  @@index([recipientUserId, readAt])
+  @@index([projectId])
 }

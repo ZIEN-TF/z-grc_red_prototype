@@ -2,6 +2,8 @@ import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth";
 import { ProjectSidebar } from "./sidebar";
+import { WorkflowBanner } from "./workflow-banner";
+import type { Phase } from "@/lib/workflow";
 
 export default async function ProjectLayout({
   children,
@@ -21,6 +23,7 @@ export default async function ProjectLayout({
       manufacturer: true,
       screeningComplete: true,
       userId: true,
+      phase: true,
       _count: { select: { assets: true, dtAnswers: true } },
     },
   });
@@ -44,7 +47,14 @@ export default async function ProjectLayout({
   return (
     <div className="flex gap-6">
       <ProjectSidebar project={sidebarProject} role={session.role} />
-      <div className="min-w-0 flex-1">{children}</div>
+      <div className="min-w-0 flex-1">
+        <WorkflowBanner
+          projectId={project.id}
+          phase={project.phase as Phase}
+          role={session.role}
+        />
+        {children}
+      </div>
     </div>
   );
 }

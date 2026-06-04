@@ -94,6 +94,13 @@ const STEPS: Step[] = [
     icon: FileText,
   },
   {
+    id: "remediation",
+    label_ko: "조치 방안",
+    label_en: "Remediation",
+    path: "/remediation",
+    icon: CircleDot,
+  },
+  {
     id: "assessment",
     label_ko: "기능 평가",
     label_en: "Assessment",

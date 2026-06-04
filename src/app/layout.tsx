@@ -5,6 +5,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { getSession } from "@/lib/auth";
 import { UserMenu } from "@/components/user-menu";
+import { NotificationBell } from "@/components/notification-bell";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -44,7 +45,10 @@ export default async function RootLayout({
             </Link>
             <nav className="flex items-center gap-3 text-sm">
               {session ? (
-                <UserMenu session={session} />
+                <>
+                  <NotificationBell />
+                  <UserMenu session={session} />
+                </>
               ) : (
                 <>
                   <Link

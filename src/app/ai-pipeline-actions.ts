@@ -7,15 +7,10 @@
 // background and the client polls its status.
 
 import { revalidatePath } from "next/cache";
-import fs from "fs/promises";
-import path from "path";
-import crypto from "crypto";
-import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireProjectAccess } from "@/lib/auth";
 import { isBackgroundAuthorized } from "@/lib/ai/bg-context";
-import { runFirmwareAnalysis, parseFindings, findingsToText } from "@/lib/ai/firmware";
-import { callStructured } from "@/lib/ai/anthropic";
+import { runFirmwareAnalysis } from "@/lib/ai/firmware";
 import {
   GROUNDING_INSTRUCTION,
   definitionsBlock,
@@ -59,10 +54,15 @@ async function assertEditable(projectId: string) {
 }
 
 // ── Pipeline run: start (background) + status (poll) ───────────────
+// A run covers one flow segment ("stage"): "assets", "dt", or "assessment"
+// (or "full" for the legacy one-shot run).
+export type AiStage = "full" | "assets" | "dt" | "assessment";
+
 export type AiRunStatus = {
   id: string;
+  stage: string; // full|assets|dt|assessment
   status: string; // queued|running|done|failed
-  step: string; // firmware|assets|dt|evidence|assessment|done
+  step: string; // firmware|assets|dt|evidence|remediation|assessment|done
   total: number;
   completed: number;
   message: string;
@@ -71,6 +71,7 @@ export type AiRunStatus = {
 
 function serializeRun(run: {
   id: string;
+  stage: string;
   status: string;
   step: string;
   total: number;
@@ -80,6 +81,7 @@ function serializeRun(run: {
 }): AiRunStatus {
   return {
     id: run.id,
+    stage: run.stage,
     status: run.status,
     step: run.step,
     total: run.total,
@@ -98,10 +100,14 @@ export async function getAiPipelineStatus(projectId: string): Promise<AiRunStatu
   return run ? serializeRun(run) : null;
 }
 
-// Start the whole pipeline as a background job. Returns immediately; the client
+// Start one pipeline stage as a background job. Returns immediately; the client
 // polls getAiPipelineStatus. No long blocking request → no gateway timeout, and
-// the run survives the user closing the tab.
-export async function startAiPipeline(projectId: string): Promise<AiRunStatus> {
+// the run survives the user closing the tab. `stage` selects which flow segment
+// runs ("assets" / "dt" / "assessment"); "full" keeps the legacy one-shot run.
+export async function startAiPipeline(
+  projectId: string,
+  stage: AiStage = "full",
+): Promise<AiRunStatus> {
   await assertEditable(projectId);
   const fwCount = await prisma.projectAttachment.count({
     where: { projectId, kind: "firmware" },
@@ -122,11 +128,11 @@ export async function startAiPipeline(projectId: string): Promise<AiRunStatus> {
   }
 
   const run = await prisma.aiPipelineRun.create({
-    data: { projectId, status: "queued", message: "대기 중…" },
+    data: { projectId, stage, status: "queued", message: "대기 중…" },
   });
   // Dynamic import avoids a static import cycle with run-pipeline.ts.
-  const { runFullPipeline } = await import("@/lib/ai/run-pipeline");
-  void runFullPipeline(run.id).catch(() => {});
+  const { runPipeline } = await import("@/lib/ai/run-pipeline");
+  void runPipeline(run.id).catch(() => {});
   revalidatePath(`/projects/${projectId}/result`);
   return serializeRun(run);
 }
@@ -346,19 +352,41 @@ export async function aiFillDTRequirementBundled(
   return { saved: toCreate.length, iterations: iterations.length };
 }
 
-// ── Firmware-grounded functional assessment (#5) ──────────────────
-const FwAssessmentSchema = z.object({
-  assessments: z.array(
-    z.object({
-      type: z.enum(["completeness", "sufficiency", "conceptual_completeness"]),
-      testMethod: z.string(), // 한국어, 기기별 구체 단계
-      testResult: z.string(), // 한국어, 정적 분석으로 실제 확인한 결과
-      verdict: z.enum(["pass", "fail", "not_applicable"]),
-      aiPerformable: z.boolean(), // 실기기 동적 테스트가 반드시 필요하면 false
-      evidenceText: z.string(), // 증적 파일에 저장할 본문(명령/근거/결론)
-    }),
-  ),
-});
+// ── Functional assessment + DT-fail remediation ───────────────────
+// Both are AI fills grounded on the firmware findings + uploaded documents
+// (loadProjectAttachmentsForAI bundles both). All AI output is Korean.
+
+// Derive screening map / candidate mechanisms / applicable standards the same
+// way the DT and assessment fills do. Shared by the assessment + remediation
+// fills below.
+function deriveScreeningContext(project: {
+  screeningAnswers: Array<{ questionId: string; answer: string }>;
+  applicable1: boolean;
+  applicable2: boolean;
+  applicable3: boolean;
+  mechanismCandidates: string;
+}): {
+  screening: Record<string, "yes" | "no">;
+  candidates: string[];
+  applicable: StandardId[];
+} {
+  const screening: Record<string, "yes" | "no"> = {};
+  for (const a of project.screeningAnswers) {
+    if (a.answer === "yes" || a.answer === "no") screening[a.questionId] = a.answer;
+  }
+  const recomputed = evaluateScreening(screening);
+  const candidates =
+    recomputed.candidateMechanisms.length > 0
+      ? recomputed.candidateMechanisms
+      : (JSON.parse(project.mechanismCandidates) as string[]);
+  const applicable: StandardId[] =
+    recomputed.applicableStandards.length > 0
+      ? recomputed.applicableStandards
+      : ([project.applicable1 && 1, project.applicable2 && 2, project.applicable3 && 3].filter(
+          Boolean,
+        ) as StandardId[]);
+  return { screening, candidates, applicable };
+}
 
 function safeJson(s: string): Record<string, string> {
   try {
@@ -418,9 +446,55 @@ function requirementIsActive(
   return tally(null);
 }
 
+// Outcome of one DT iteration (asset or global) for a requirement, as a leaf
+// outcome string ("pass" | "fail" | "not_applicable") or null if unresolved.
+// Mirrors requirementIsActive's tally but exposes the actual outcome.
+function iterationOutcome(
+  req: (typeof DT_REQUIREMENTS)[number],
+  assetId: string | null,
+  dtAnswers: Array<{
+    requirementId: string;
+    assetId: string | null;
+    nodeId: string;
+    answer: string;
+  }>,
+): string | null {
+  if (req.naFromRequirement) {
+    const linked = dtAnswers
+      .filter(
+        (d) =>
+          d.requirementId === req.naFromRequirement!.requirementId &&
+          (d.assetId ?? null) === assetId,
+      )
+      .map((d) => ({ nodeId: d.nodeId, answer: d.answer as NodeAnswer }));
+    if (
+      evaluateNAFromRequirement(
+        req,
+        linked,
+        requirementById(req.naFromRequirement!.requirementId),
+      ).applies
+    )
+      return "not_applicable";
+  }
+  const answers: Record<string, NodeAnswer> = {};
+  for (const d of dtAnswers) {
+    if (d.requirementId === req.id && (d.assetId ?? null) === assetId) {
+      if (d.answer === "yes" || d.answer === "no" || d.answer === "na")
+        answers[d.nodeId] = d.answer;
+    }
+  }
+  if (Object.keys(answers).length === 0) return null;
+  const walk = walkTree(req, answers);
+  return walk.kind === "outcome" ? walk.outcome : null;
+}
+
+// ── #5 Functional assessment — AI fills testMethod ONLY ────────────
+// The AI proposes the 테스트 방법(test method) for each assessment unit; the
+// human consultant fills the 테스트 결과(test result) + verdict. Grounded on the
+// firmware findings + uploaded documents. All AI output is Korean.
 export async function aiFillAssessmentFirmware(
   projectId: string,
-): Promise<{ reqsProcessed: number; totalSaved: number; attached: number; errors: string[] }> {
+): Promise<{ reqsProcessed: number; totalSaved: number; errors: string[] }> {
   await assertEditable(projectId);
 
   const project = await prisma.project.findUnique({
@@ -429,21 +503,7 @@ export async function aiFillAssessmentFirmware(
   });
   if (!project) throw new Error("프로젝트를 찾을 수 없습니다.");
 
-  const screening: Record<string, "yes" | "no"> = {};
-  for (const a of project.screeningAnswers) {
-    if (a.answer === "yes" || a.answer === "no") screening[a.questionId] = a.answer;
-  }
-  const recomputed = evaluateScreening(screening);
-  const candidates =
-    recomputed.candidateMechanisms.length > 0
-      ? recomputed.candidateMechanisms
-      : (JSON.parse(project.mechanismCandidates) as string[]);
-  const applicable: StandardId[] =
-    recomputed.applicableStandards.length > 0
-      ? recomputed.applicableStandards
-      : ([project.applicable1 && 1, project.applicable2 && 2, project.applicable3 && 3].filter(
-          Boolean,
-        ) as StandardId[]);
+  const { screening, candidates, applicable } = deriveScreeningContext(project);
 
   const parsedAssets = project.assets.map((a) => ({
     id: a.id,
@@ -451,15 +511,9 @@ export async function aiFillAssessmentFirmware(
     metadata: safeJson(a.metadata),
   }));
 
-  const fa = await prisma.firmwareAnalysis.findFirst({
-    where: { projectId, status: "done" },
-    orderBy: { createdAt: "desc" },
-  });
-  const findings = fa?.findings ? parseFindings(fa.findings) : null;
-  // Findings are static within a run; cap kept generous (cached downstream).
-  const findingsText = findings
-    ? findingsToText(findings).slice(0, 16000)
-    : "(펌웨어 분석 결과 없음)";
+  // Firmware findings + uploaded documents (loadProjectAttachmentsForAI appends
+  // the firmware analysis as a text block), so testMethod is grounded in both.
+  const attachments = await loadProjectAttachmentsForAI(projectId);
 
   const visibleReqs = DT_REQUIREMENTS.filter(
     (r) =>
@@ -472,7 +526,6 @@ export async function aiFillAssessmentFirmware(
   const errors: string[] = [];
   let reqsProcessed = 0;
   let totalSaved = 0;
-  let attached = 0;
   const now = new Date();
 
   for (const req of visibleReqs) {
@@ -481,86 +534,78 @@ export async function aiFillAssessmentFirmware(
       const types = assessmentsFor(req.id);
       const std = standardOf(req.id);
 
-      const system = [
+      const systemPrompt = [
         GROUNDING_INSTRUCTION,
-        "# 펌웨어 정적 분석 결과 (binwalk 추출 파일시스템)\n" + findingsText,
         definitionsBlock(std),
+        "위 정의와 함께, 첨부된 사용자 문서·펌웨어 정적 분석 결과를 근거로 작업한다. 모든 출력은 반드시 한국어로 작성한다.",
       ].join("\n\n");
 
-      const res = await callStructured({
-        system,
-        user:
-          requirementGrounding(req.id, types) +
-          "\n\n## 작업\n아래 평가 유형 각각에 대해, **펌웨어 정적 분석 결과**와 assessment unit을 근거로 평가를 수행하라.\n" +
-          `평가 유형: ${types.join(", ")}.\n` +
-          "- testMethod: 이 기기에 맞는 구체적 테스트 방법(한국어).\n" +
-          "- testResult: 정적 분석으로 **실제 확인한 결과**(한국어). 펌웨어로 판단 가능한 것은 최대한 직접 판정하라.\n" +
-          "- verdict: 판정 기준(Assignment of verdict)을 적용해 pass/fail/not_applicable.\n" +
-          "- aiPerformable: **실기기 구동·네트워크 동작·하드웨어가 반드시 필요한 경우에만 false**. 펌웨어 정적 분석/문서로 판단 가능하면 true로 하고 직접 수행하라(사람 테스트를 최소화하는 것이 목표).\n" +
-          "- evidenceText: 증적 파일에 저장할 본문(한국어). 어떤 파일/명령/근거로 확인했는지, 발견 내용, 결론을 적어라.\n" +
-          "모든 출력은 한국어로 작성하라.",
-        schema: FwAssessmentSchema,
-        schemaName: "fw_assessment",
-        effort: "medium",
-        maxTokens: 9000,
+      const userPrompt =
+        (requirementGrounding(req.id, types) ?? "") +
+        "\n\n## 작업\n" +
+        "아래 평가 유형 각각에 대해, 이 기기에 맞는 구체적인 **테스트 방법(testMethod)** 만 작성하라.\n" +
+        `평가 유형: ${types.join(", ")}.\n` +
+        "- testMethod: 어떤 파일·설정·로그·문서를 어떤 순서로 확인하여 이 요구사항 충족 여부를 검증할지, 이 기기에 맞춰 구체적으로 적어라.\n" +
+        "- 테스트 결과와 합부 판정(verdict)은 사람이 직접 수행하므로 **절대 작성하지 말 것**.\n" +
+        "모든 출력은 반드시 한국어로 작성하라.";
+
+      const res = await runAIWithAttachments<{
+        assessments: Array<{ type: string; testMethod: string }>;
+      }>({
+        systemPrompt,
+        userPrompt,
+        attachments,
+        jsonSchema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            assessments: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  type: { type: "string", enum: types },
+                  testMethod: { type: "string" },
+                },
+                required: ["type", "testMethod"],
+              },
+            },
+          },
+          required: ["assessments"],
+        },
+        schemaName: "assessment_method",
       });
 
       const validTypes = new Set<AssessmentType>(types);
       for (const a of res.assessments) {
         if (!validTypes.has(a.type as AssessmentType)) continue;
+        const testMethod = a.testMethod?.trim() ?? "";
+        if (!testMethod) continue;
 
         const existing = await prisma.dTAssessment.findFirst({
           where: { projectId, assetId: null, requirementId: req.id, assessmentType: a.type },
         });
         if (existing?.userReviewed) continue;
 
-        let testResult = a.testResult?.trim() ?? "";
-        if (!a.aiPerformable) {
-          testResult = `AI 수행 불가 — 실기기 동적 테스트 필요.\n${testResult}`.trim();
-        }
-
-        // Write the AI-generated evidence as a .txt and attach it (only when
-        // the AI actually performed the check).
-        let attach: {
-          attachmentFilename: string;
-          attachmentStoredPath: string;
-          attachmentMimeType: string;
-          attachmentSize: number;
-        } | null = null;
-        if (a.aiPerformable && a.evidenceText?.trim()) {
-          const dir = path.join(process.cwd(), "uploads", projectId, "assessments");
-          await fs.mkdir(dir, { recursive: true });
-          const filename = `${req.id}-${a.type}-evidence.txt`.replace(/[^\w.\-]/g, "_");
-          const storedPath = path.posix.join(
-            projectId,
-            "assessments",
-            `${crypto.randomUUID()}-${filename}`,
-          );
-          const full = path.join(process.cwd(), "uploads", storedPath);
-          const body = `# ${req.id} — ${a.type} 증적 (AI 자동 생성)\n\n## 테스트 방법\n${a.testMethod}\n\n## 테스트 결과\n${testResult}\n\n## 근거\n${a.evidenceText}\n`;
-          await fs.writeFile(full, body, "utf8");
-          attach = {
-            attachmentFilename: filename,
-            attachmentStoredPath: storedPath,
-            attachmentMimeType: "text/plain",
-            attachmentSize: Buffer.byteLength(body),
-          };
-          attached++;
-        }
-
-        const data = {
-          testMethod: a.testMethod?.trim() ?? "",
-          testResult,
-          verdict: a.aiPerformable ? a.verdict : null,
-          aiGenerated: true,
-          aiGeneratedAt: now,
-          ...(attach ?? {}),
-        };
         if (existing) {
-          await prisma.dTAssessment.update({ where: { id: existing.id }, data });
+          // Update only the AI-owned testMethod; leave the human-owned
+          // testResult/verdict untouched.
+          await prisma.dTAssessment.update({
+            where: { id: existing.id },
+            data: { testMethod, aiGenerated: true, aiGeneratedAt: now },
+          });
         } else {
           await prisma.dTAssessment.create({
-            data: { projectId, assetId: null, requirementId: req.id, assessmentType: a.type, ...data },
+            data: {
+              projectId,
+              assetId: null,
+              requirementId: req.id,
+              assessmentType: a.type,
+              testMethod,
+              aiGenerated: true,
+              aiGeneratedAt: now,
+            },
           });
         }
         totalSaved++;
@@ -572,5 +617,182 @@ export async function aiFillAssessmentFirmware(
   }
 
   revalidatePath(`/projects/${projectId}/assessment`, "layout");
-  return { reqsProcessed, totalSaved, attached, errors };
+  return { reqsProcessed, totalSaved, errors };
+}
+
+// ── DT fail → 조치 방안(remediation) generation ────────────────────
+// For every requirement×asset DT iteration that resolved to FAIL, ask the AI
+// for a concrete corrective-action plan (Korean), grounded on the firmware +
+// documents. Upserts into DTRemediation, preserving any customer response, and
+// prunes AI remediations for fails that have since been resolved (and that the
+// customer hasn't responded to).
+export async function aiFillDTRemediations(
+  projectId: string,
+): Promise<{ reqsProcessed: number; fails: number; saved: number; errors: string[] }> {
+  await assertEditable(projectId);
+
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    include: { assets: true, dtAnswers: true, screeningAnswers: true },
+  });
+  if (!project) throw new Error("프로젝트를 찾을 수 없습니다.");
+
+  const { screening, candidates, applicable } = deriveScreeningContext(project);
+
+  const parsedAssets = project.assets.map((a) => ({
+    id: a.id,
+    kind: a.kind,
+    name: a.name,
+    metadata: safeJson(a.metadata),
+  }));
+
+  const attachments = await loadProjectAttachmentsForAI(projectId);
+
+  const visibleReqs = DT_REQUIREMENTS.filter(
+    (r) =>
+      candidates.includes(r.mechanismCode) &&
+      r.standards.some((s) => applicable.includes(s)) &&
+      evaluateRequirementApplicability(r, screening).applies,
+  );
+
+  const errors: string[] = [];
+  let reqsProcessed = 0;
+  let fails = 0;
+  let saved = 0;
+  const now = new Date();
+  const liveKeys = new Set<string>();
+  const keyOf = (assetId: string | null, reqId: string) => `${assetId ?? ""}::${reqId}`;
+
+  for (const req of visibleReqs) {
+    try {
+      const iters: Array<{
+        assetKey: string;
+        assetId: string | null;
+        label: string;
+        metadata: Record<string, string>;
+      }> = req.iterateOver
+        ? matchAssetsForRequirement(
+            req,
+            parsedAssets,
+            getApplicableKindsFor(req, DT_REQUIREMENTS, applicable),
+          ).map((a) => ({
+            assetKey: a.id,
+            assetId: a.id,
+            label: `${a.name} (${kindConfig(a.kind)?.title_ko ?? a.kind})`,
+            metadata: a.metadata,
+          }))
+        : [{ assetKey: "__global__", assetId: null, label: "기기 전체 / Global", metadata: {} }];
+
+      const failing = iters.filter(
+        (it) => iterationOutcome(req, it.assetId, project.dtAnswers) === "fail",
+      );
+      if (failing.length === 0) continue;
+      fails += failing.length;
+      reqsProcessed++;
+      for (const f of failing) liveKeys.add(keyOf(f.assetId, req.id));
+
+      const std = standardOf(req.id);
+      const systemPrompt = [
+        GROUNDING_INSTRUCTION,
+        definitionsBlock(std),
+        "위 정의와 함께, 첨부된 사용자 문서·펌웨어 정적 분석 결과를 근거로 작업한다. 모든 출력은 반드시 한국어로 작성한다.",
+      ].join("\n\n");
+
+      const failBlock = failing
+        .map(
+          (f, i) =>
+            `${i + 1}. assetKey="${f.assetKey}" — ${f.label}` +
+            Object.entries(f.metadata)
+              .filter(([, v]) => v)
+              .map(([k, v]) => `\n   - ${k}: ${v}`)
+              .join(""),
+        )
+        .join("\n");
+
+      const userPrompt =
+        (requirementGrounding(req.id, assessmentsFor(req.id)) ?? "") +
+        "\n\n## 상황\n" +
+        `아래 평가 단위들은 요구사항 ${req.id}의 Decision Tree 평가 결과가 **부적합(FAIL)** 으로 판정되었다.\n` +
+        failBlock +
+        "\n\n## 작업\n" +
+        "각 평가 단위(assetKey)에 대해, 이 요구사항을 충족시키기 위한 **구체적인 조치 방안(remediationText)** 을 한국어로 작성하라.\n" +
+        "- 무엇이 미충족인지, 어떤 설정·구현·문서를 어떻게 바꿔야 하는지 실무적으로 적어라.\n" +
+        "- 가능하면 펌웨어/문서에서 확인된 근거를 인용하라.\n" +
+        "모든 출력은 반드시 한국어로 작성하라.";
+
+      const res = await runAIWithAttachments<{
+        remediations: Array<{ assetKey: string; remediationText: string }>;
+      }>({
+        systemPrompt,
+        userPrompt,
+        attachments,
+        jsonSchema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            remediations: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  assetKey: { type: "string", enum: failing.map((f) => f.assetKey) },
+                  remediationText: { type: "string" },
+                },
+                required: ["assetKey", "remediationText"],
+              },
+            },
+          },
+          required: ["remediations"],
+        },
+        schemaName: "dt_remediation",
+      });
+
+      const byKey = new Map(res.remediations.map((r) => [r.assetKey, r.remediationText]));
+      for (const f of failing) {
+        const text = (byKey.get(f.assetKey) ?? "").trim();
+        if (!text) continue;
+        const existing = await prisma.dTRemediation.findFirst({
+          where: { projectId, assetId: f.assetId, requirementId: req.id },
+        });
+        if (existing) {
+          await prisma.dTRemediation.update({
+            where: { id: existing.id },
+            data: { remediationText: text, aiGenerated: true, aiGeneratedAt: now },
+          });
+        } else {
+          await prisma.dTRemediation.create({
+            data: {
+              projectId,
+              assetId: f.assetId,
+              requirementId: req.id,
+              remediationText: text,
+              aiGenerated: true,
+              aiGeneratedAt: now,
+            },
+          });
+        }
+        saved++;
+      }
+    } catch (err) {
+      errors.push(`${req.id}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // Prune AI remediations for fails that no longer exist and that the customer
+  // has not responded to. (null assetId can't go in a SQLite WHERE via the
+  // driver, so load-all + filter-in-JS + delete-by-id.)
+  const allRemediations = await prisma.dTRemediation.findMany({
+    where: { projectId, aiGenerated: true },
+    select: { id: true, assetId: true, requirementId: true, respondedAt: true },
+  });
+  const staleIds = allRemediations
+    .filter((r) => !r.respondedAt && !liveKeys.has(keyOf(r.assetId ?? null, r.requirementId)))
+    .map((r) => r.id);
+  if (staleIds.length > 0) {
+    await prisma.dTRemediation.deleteMany({ where: { id: { in: staleIds } } });
+  }
+
+  revalidatePath(`/projects/${projectId}/dt`, "layout");
+  return { reqsProcessed, fails, saved, errors };
 }

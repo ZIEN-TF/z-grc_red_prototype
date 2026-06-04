@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowLeft, ArrowRight, CheckCircle2, Circle } from "lucide-react";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { requireSession } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -28,6 +29,7 @@ export default async function ResultPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const session = await requireSession();
   const project = await prisma.project.findUnique({ where: { id } });
   if (!project) notFound();
 
@@ -85,11 +87,15 @@ export default async function ResultPage({
         </p>
       </div>
 
-      <AiPipelinePanel
-        projectId={project.id}
-        hasFirmware={firmwareCount > 0}
-        disabled={project.finalizedAt !== null}
-      />
+      {/* AI orchestration is consultant-only — customers never see that the
+          drafts are AI-authored. */}
+      {session.role === "consultant" && (
+        <AiPipelinePanel
+          projectId={project.id}
+          hasFirmware={firmwareCount > 0}
+          disabled={project.finalizedAt !== null}
+        />
+      )}
 
       {/* Applicable standards */}
       <Card>
