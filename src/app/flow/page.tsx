@@ -92,19 +92,26 @@ function LaneHeader({ actor }: { actor: Actor }) {
   );
 }
 
+const COL_INDEX: Record<Actor, number> = { customer: 0, ai: 1, consultant: 2 };
+const COL_X = ["16.6667%", "50%", "83.3333%"];
+const ROW_H = 104; // px — fixed so the SVG arrow endpoints stay aligned
+const CARD_HALF = 36; // px — half the (fixed) card height
+
 function StepCard({ step }: { step: Step }) {
   const m = ACTOR_META[step.actor];
   const Icon = step.icon;
   return (
-    <div className={`w-full rounded-lg border p-3 shadow-sm ${m.card}`}>
+    <div className={`flex h-[72px] w-full flex-col justify-center overflow-hidden rounded-lg border px-3 py-2 shadow-sm ${m.card}`}>
       <div className="flex items-center gap-2">
         <span className={`flex size-5 shrink-0 items-center justify-center rounded-full ${m.badge} text-[10px] font-bold text-white`}>
           {step.n}
         </span>
         <Icon className={`size-4 shrink-0 ${m.text}`} />
-        <p className="text-sm font-semibold leading-tight">{step.title}</p>
+        <p className="truncate text-sm font-semibold leading-tight">{step.title}</p>
       </div>
-      <p className="mt-1.5 text-xs text-muted-foreground">{step.desc}</p>
+      <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
+        {step.desc}
+      </p>
     </div>
   );
 }
@@ -163,22 +170,62 @@ export default function FlowPage() {
             ))}
           </div>
 
-          {/* One row per step — card sits in its actor's lane; empty lanes show a
-              faint connector line so the columns read as swimlanes. */}
-          <div className="space-y-3 py-2">
-            {STEPS.map((s) => (
-              <div key={s.n} className="grid grid-cols-3 items-stretch gap-3">
-                {LANES.map((lane) => (
-                  <div key={lane} className="flex items-center justify-center">
-                    {s.actor === lane ? (
-                      <StepCard step={s} />
-                    ) : (
-                      <span className="min-h-[2.75rem] w-px self-stretch bg-border/50" />
-                    )}
-                  </div>
-                ))}
-              </div>
-            ))}
+          {/* Fixed-height rows (one per step) with an SVG arrow overlay that
+              connects each step to the next, crossing lanes to show the flow. */}
+          <div className="relative" style={{ height: STEPS.length * ROW_H }}>
+            <svg
+              className="pointer-events-none absolute inset-0 h-full w-full"
+              preserveAspectRatio="none"
+            >
+              <defs>
+                <marker
+                  id="flow-arrow"
+                  markerWidth="7"
+                  markerHeight="7"
+                  refX="5.5"
+                  refY="3"
+                  orient="auto"
+                >
+                  <path d="M0,0 L6,3 L0,6 Z" fill="#94a3b8" />
+                </marker>
+              </defs>
+              {STEPS.slice(0, -1).map((s, i) => {
+                const from = STEPS[i];
+                const to = STEPS[i + 1];
+                const x1 = COL_X[COL_INDEX[from.actor]];
+                const x2 = COL_X[COL_INDEX[to.actor]];
+                const y1 = i * ROW_H + ROW_H / 2 + CARD_HALF;
+                const y2 = (i + 1) * ROW_H + ROW_H / 2 - CARD_HALF;
+                return (
+                  <line
+                    key={s.n}
+                    x1={x1}
+                    y1={y1}
+                    x2={x2}
+                    y2={y2}
+                    stroke="#94a3b8"
+                    strokeWidth={1.5}
+                    markerEnd="url(#flow-arrow)"
+                  />
+                );
+              })}
+            </svg>
+
+            <div className="relative z-10">
+              {STEPS.map((s) => (
+                <div
+                  key={s.n}
+                  className="grid grid-cols-3 items-center gap-3"
+                  style={{ height: ROW_H }}
+                >
+                  {LANES.map((lane) => (
+                    <div key={lane} className="flex items-center justify-center">
+                      {s.actor === lane ? <StepCard step={s} /> : null}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Completion */}
