@@ -51,6 +51,12 @@ export default async function RootLayout({
               </span>
             </Link>
             <nav className="flex items-center gap-3 text-sm">
+              <Link
+                href="/flow"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                Flow
+              </Link>
               {session ? (
                 <>
                   <NotificationBell />
